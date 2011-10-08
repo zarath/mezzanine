@@ -1,17 +1,36 @@
 
 from django.contrib.syndication.feeds import Feed
 from django.core.urlresolvers import reverse
-from django.utils.feedgenerator import Atom1Feed
+from django.utils.feedgenerator import Atom1Feed, Rss201rev2Feed
 from django.utils.html import strip_tags
 
 from mezzanine.blog.models import BlogPost, BlogCategory
 from mezzanine.blog.views import blog_page
 
+class ImageFeed(Rss201rev2Feed):
+    """
+    RSS Feed with Image attribute
+    """
+#    <image>
+#      <url>URL einer einzubindenden Grafik</url>
+#      <title>Bildtitel</title>
+#      <link>URL, mit der das Bild verknuepft ist</link>
+#    </image>
+
+    def add_root_elements(self, handler):
+	Rss201rev2Feed.add_root_elements(self, handler)
+	handler.startElement(u"image", self.root_attributes())
+	handler.addQuickElement(u"url", "http://holger.outgesourced.org/favicon.ico")
+	handler.addQuickElement(u"title", "Share the road")
+	handler.addQuickElement(u"link", "http://holger.outgesourced.org/blog/")
+	handler.endElement(u"image")
 
 class PostsRSS(Feed):
     """
     RSS feed for all blog posts.
     """
+
+    feed_type = ImageFeed
 
     def title(self):
         return blog_page().title
@@ -37,6 +56,9 @@ class PostsRSS(Feed):
 
     def item_pubdate(self, item):
         return item.publish_date
+
+    def item_description(self, item):
+	return item.description
 
     def item_categories(self, item):
         return item.categories.all()
