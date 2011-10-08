@@ -49,23 +49,25 @@ def blog_post_list(request, tag=None, year=None, month=None, username=None,
     if category is not None:
         category = get_object_or_404(BlogCategory, slug=category)
         blog_posts = blog_posts.filter(categories=category)
-        templates.append("blog/blog_post_list_%s.html" % category.slug)
+        templates.append(u"blog/blog_post_list_%s.html" % category.slug)
     author = None
     if username is not None:
         author = get_object_or_404(User, username=username)
         blog_posts = blog_posts.filter(user=author)
-        templates.append("blog/blog_post_list_%s.html" % username)
+        templates.append(u"blog/blog_post_list_%s.html" % username)
     # Create dicts mapping blog post IDs to lists of categories and
     # keywords, and assign these to each blog post, to avoid querying
     # the database inside the template loop for posts.
     blog_posts = list(blog_posts.select_related("user"))
     categories = defaultdict(list)
-    for cat in BlogCategory.objects.raw(
-        "SELECT * FROM blog_blogcategory "
-        "JOIN blog_blogpost_categories "
-        "ON blog_blogcategory.id = blog_blogpost_categories.blogcategory_id "
-        "WHERE blogpost_id IN (%s)" % ",".join([str(p.id) for p in blog_posts])):
-        categories[cat.blogpost_id].append(cat)
+    if blog_posts:
+        ids = ",".join([str(p.id) for p in blog_posts])
+        for cat in BlogCategory.objects.raw(
+            "SELECT * FROM blog_blogcategory "
+            "JOIN blog_blogpost_categories "
+            "ON blog_blogcategory.id = blogcategory_id "
+            "WHERE blogpost_id IN (%s)" % ids):
+            categories[cat.blogpost_id].append(cat)
     keywords = defaultdict(list)
     blogpost_type = ContentType.objects.get(app_label="blog", model="blogpost")
     assigned = AssignedKeyword.objects.filter(blogpost__in=blog_posts,
@@ -105,7 +107,7 @@ def blog_post_detail(request, slug, template="blog/blog_post_detail.html"):
     context = {"blog_page": blog_page(), "blog_post": blog_post,
                "posted_comment_form": posted_comment_form,
                "unposted_comment_form": unposted_comment_form}
-    templates = ["blog/blog_post_detail_%s.html" % slug, template]
+    templates = [u"blog/blog_post_detail_%s.html" % slug, template]
     request_context = RequestContext(request, context)
     t = select_template(templates, request_context)
     return HttpResponse(t.render(request_context))

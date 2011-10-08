@@ -47,8 +47,11 @@ def page_menu(context, token):
         except KeyError:
             user = None
             slug = ""
-        for page in Page.objects.published(for_user=user).select_related(depth=2).order_by("_order"):
+        has_children = lambda page_id: lambda: page_id in context["menu_pages"]
+        published = Page.objects.published(for_user=user)
+        for page in published.select_related(depth=2).order_by("_order"):
             page.set_menu_helpers(slug)
+            setattr(page, "has_children", has_children(page.id))
             pages[page.parent_id].append(page)
         context["menu_pages"] = pages
         context["on_home"] = slug == reverse("home")

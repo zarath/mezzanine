@@ -1,12 +1,23 @@
 import base64
 import hashlib
 import hmac
-import simplejson
 import time
+
+from django.utils import simplejson
 
 from mezzanine import template
 
 register = template.Library()
+
+
+@register.simple_tag
+def disqus_id_for(obj):
+    """
+    Returns a unique identifier for the object to be used in
+    DISQUS JavaScript.
+    """
+    return "%s-%s" % (obj._meta.object_name, obj.id)
+
 
 @register.inclusion_tag("generic/includes/disqus_sso.html", takes_context=True)
 def disqus_sso_script(context):
@@ -23,6 +34,7 @@ def disqus_sso_script(context):
         context["public_key"] = public_key
         context["sso_data"] = _get_disqus_sso(user, public_key, secret_key)
     return context
+
 
 def _get_disqus_sso(user, public_key, secret_key):
     # Based on snippet provided on http://docs.disqus.com/developers/sso/

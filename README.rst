@@ -7,11 +7,14 @@ framework. It is `BSD licensed`_ and designed to provide both a consistent
 interface for managing content, and a simple architecture that makes diving
 in and hacking on the code as easy as possible.
 
-Its goal is to resemble something like `Wordpress`_, with an intuitive
+Mezzanine resembles tools like `Wordpress`_, with an intuitive
 interface for managing pages and blog posts. Mezzanine takes a different
 approach from other Django applications in this space like `Pinax`_ or
 `Mingus`_ that glue together a lot of reusable apps, instead opting to
 provide most of its functionality included with the project by default.
+
+Visit the `gallery of sites powered by Mezzanine`_ to see some of the
+great sites people have built using Mezzanine.
 
 Features
 ========
@@ -37,8 +40,7 @@ provides the following features:
   * `Themes`_
   * Tagging
   * One step migration from other blogging engines
-  * Built-in threaded comments, or:
-  * `Disqus`_ integration
+  * `Disqus`_ integration or built-in threaded comments
   * `Gravatar`_ integration
   * `Google Analytics`_ integration
   * `Twitter`_ feed integration
@@ -64,10 +66,11 @@ environment using:
 Mezzanine is designed however to be used most effectively in conjunction
 with the following libraries:
 
-  * `setuptools`_
   * `Python Imaging Library`_ (PIL)
   * `django-grappelli`_ <= 2.0
   * `django-filebrowser`_ <= 3.0
+  * `South`_
+  * `pyflakes`_ and `pep8`_ (required for running the test suite)
 
 Browser Support
 ===============
@@ -78,9 +81,13 @@ Internet Explorer 7 and earlier are generally unsupported.
 Installation
 ============
 
-Assuming you have `setuptools`_ installed, the easiest method is to install
-directly from pypi by running the following command, which will also attempt
-to install the dependencies mentioned above::
+The easiest method is to install directly from pypi using `pip`_ or
+`setuptools`_ by running the respective command below, which will also
+attempt to install the dependencies mentioned above::
+
+    $ pip install -U mezzanine
+
+or::
 
     $ easy_install -U mezzanine
 
@@ -97,13 +104,18 @@ can be used for creating a new Mezzanine project in a similar fashion to
 You can then run your project with the usual Django steps::
 
     $ cd project_name
-    $ python manage.py syncdb --noinput
+    $ python manage.py createdb --noinput
     $ python manage.py runserver
+
+.. note::
+
+    The ``createdb`` command performs the same task as Django's ``syncdb``
+    command, and also handles setting the initial migration state for `South`_.
 
 You should then be able to browse to http://127.0.0.1:8000/admin/ and log
 in using the default account (``username: admin, password: default``). If
 you'd like to specify a different username and password during set up, simply
-exclude the ``--noinput`` option included above when running ``syncdb``.
+exclude the ``--noinput`` option included above when running ``createdb``.
 
 Contributing
 ============
@@ -164,6 +176,12 @@ Sites Using Mezzanine
   * `Cotton On`_
   * `List G Barristers`_
   * `Tri-Cities Flower Farm`_
+  * `daon.ru`_
+  * `autoindeks.ru`_
+  * `immiau.ru`_
+  * `ARA Consultants`_
+  * `Boîte à Z'images`_
+  * `The Melbourne Cup`_
 
 Quotes
 ======
@@ -182,11 +200,16 @@ Quotes
 .. _`Wordpress`: http://wordpress.org/
 .. _`Pinax`: http://pinaxproject.com/
 .. _`Mingus`: http://github.com/montylounge/django-mingus
+.. _`gallery of sites powered by Mezzanine`: http://mezzanine.jupo.org/sites/
 .. _`Python`: http://python.org/
+.. _`pip`: http://www.pip-installer.org/
 .. _`setuptools`: http://pypi.python.org/pypi/setuptools
 .. _`Python Imaging Library`: http://www.pythonware.com/products/pil/
 .. _`django-grappelli`: http://code.google.com/p/django-grappelli/
 .. _`django-filebrowser`: http://code.google.com/p/django-filebrowser/
+.. _`South`: http://south.aeracode.org/
+.. _`pyflakes`: http://pypi.python.org/pypi/pyflakes
+.. _`pep8`: http://pypi.python.org/pypi/pep8
 .. _`In-line page editing`: http://mezzanine.jupo.org/docs/inline-editing.html
 .. _`custom content types`: http://mezzanine.jupo.org/docs/content-architecture.html#creating-custom-content-types
 .. _`Search engine and API`: http://mezzanine.jupo.org/docs/search-engine.html
@@ -229,6 +252,12 @@ Quotes
 .. _`Cotton On`: http://shop.cottonon.com/
 .. _`List G Barristers`: http://www.listgbarristers.com.au/
 .. _`Tri-Cities Flower Farm`: http://www.tricitiesflowerfarm.com/
+.. _`daon.ru`: http://daon.ru/
+.. _`autoindeks.ru`: http://autoindeks.ru/
+.. _`immiau.ru`: http://immiau.ru/
+.. _`ARA Consultants`: http://www.araconsultants.com.au/
+.. _`Boîte à Z'images`: http://boiteazimages.com/
+.. _`The Melbourne Cup`: http://www.melbournecup.com/
 .. _`Django coding style`: http://docs.djangoproject.com/en/dev/internals/contributing/#coding-style
 .. _`PEP 8`: http://www.python.org/dev/peps/pep-0008/
 .. _`mezzanine-html5boilerplate`: https://github.com/tvon/mezzanine-html5boilerplate

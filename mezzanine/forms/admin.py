@@ -11,7 +11,6 @@ from django.core.files.storage import FileSystemStorage
 from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import render_to_response, get_object_or_404
 from django.template import RequestContext
-from django.template.defaultfilters import slugify
 from django.utils.translation import ugettext_lazy as _
 
 from mezzanine.conf import settings
@@ -19,7 +18,7 @@ from mezzanine.core.admin import TabularDynamicInlineAdmin
 from mezzanine.forms.forms import ExportForm
 from mezzanine.forms.models import Form, Field, FieldEntry
 from mezzanine.pages.admin import PageAdmin
-from mezzanine.utils.urls import admin_url
+from mezzanine.utils.urls import admin_url, slugify
 
 
 fs = FileSystemStorage(location=settings.FORMS_UPLOAD_ROOT)
@@ -84,8 +83,10 @@ class FormAdmin(PageAdmin):
         if submitted:
             if request.POST.get("export"):
                 response = HttpResponse(mimetype="text/csv")
-                fname = "%s-%s.csv" % (form.slug, slugify(datetime.now().ctime()))
-                response["Content-Disposition"] = "attachment; filename=%s" % fname
+                timestamp = slugify(datetime.now().ctime())
+                fname = "%s-%s.csv" % (form.slug, timestamp)
+                header = "attachment; filename=%s" % fname
+                response["Content-Disposition"] = header
                 csv = writer(response, delimiter=settings.FORMS_CSV_DELIMITER)
                 csv.writerow(export_form.columns())
                 for rows in export_form.rows():

@@ -34,9 +34,11 @@ $(function() {
     var parentSelector = '.dynamic-inline ' + itemSelector;
 
     // Apply drag and drop to orderable inlines.
-    $(parentSelector).sortable({handle: '.ordering', axis: 'y', opacity: '.7'});
-    $(parentSelector).disableSelection();
+    $(parentSelector).sortable({handle: '.ordering', axis: 'y', opacity: '.7',
+                                placeholder: 'placeholder'});
+    $(parentSelector + ' .order').disableSelection();
     $('.ordering').css({cursor: 'move'});
+
 
     // Mark checkboxes with a 'dirty' attribute if they're changed from
     // their original state, in order to check inside anyFieldsDirty().
@@ -55,7 +57,7 @@ $(function() {
                 if (window.__grappelli_installed) {
                     parent = parent.parent();
                 }
-                if (anyFieldsDirty(parent.find('input, select, textarea'))) {
+                if (field.value.length > 0 || anyFieldsDirty(parent.find('input, select, textarea'))) {
                     field.value = order;
                     order += 1;
                 } else {
