@@ -322,6 +322,14 @@ register_setting(
 )
 
 register_setting(
+    name="SITE_ICON",
+    label=_("Favicon"),
+    description=_("An URL to the sites favicon."),
+    editable=True,
+    default="",
+)
+
+register_setting(
     name="STOP_WORDS",
     description=_("List of words which will be stripped from search queries."),
     editable=False,
@@ -389,6 +397,7 @@ register_setting(
         "CONTENT_MEDIA_URL", "DEV_SERVER", "FORMS_USE_HTML5",
         "GRAPPELLI_INSTALLED", "GOOGLE_ANALYTICS_ID",
         "PAGES_MENU_SHOW_ALL", "SITE_TITLE", "SITE_TAGLINE",
+        "SITE_ICON",
         "RATINGS_MAX",
     ),
 )
