@@ -129,6 +129,7 @@ enhancements.
 Please note the following points around contributing:
 
   * Contributed code must be written in the existing style. This is as simple as following the `Django coding style`_ and most importantly `PEP 8`_.
+  * Contributions must be available on a separately named branch that is based on the latest version of the main branch.
   * Run the tests before committing your changes. If your changes causes the tests to break, they won't be accepted.
   * If you're adding new functionality, you must include basic tests and documentation.
 
@@ -141,6 +142,7 @@ listed here, send an email to the `mezzanine-users`_ mailing list.
 
   * `mezzanine-html5boilerplate`_ - Integrates the `html5boilerplate project`_ into Mezzanine.
   * `mezzanine-mdown`_ - Adds `Markdown`_ support to Mezzanine's rich text editor.
+  * `mezzanine-openshift`_ Setup for running Mezzanine on `Redhat's OpenShift` cloud platform.
 
 Donating
 ========
@@ -182,6 +184,7 @@ Sites Using Mezzanine
   * `ARA Consultants`_
   * `Boîte à Z'images`_
   * `The Melbourne Cup`_
+  * `Diablo News`_
 
 Quotes
 ======
@@ -258,9 +261,12 @@ Quotes
 .. _`ARA Consultants`: http://www.araconsultants.com.au/
 .. _`Boîte à Z'images`: http://boiteazimages.com/
 .. _`The Melbourne Cup`: http://www.melbournecup.com/
+.. _`Diablo News`: http://www.diablo-news.com/
 .. _`Django coding style`: http://docs.djangoproject.com/en/dev/internals/contributing/#coding-style
 .. _`PEP 8`: http://www.python.org/dev/peps/pep-0008/
 .. _`mezzanine-html5boilerplate`: https://github.com/tvon/mezzanine-html5boilerplate
 .. _`html5boilerplate project`: http://html5boilerplate.com/
 .. _`mezzanine-mdown`: https://bitbucket.org/onelson/mezzanine-mdown
 .. _`Markdown`: http://en.wikipedia.org/wiki/Markdown
+.. _`mezzanine-openshift`: https://github.com/k4ml/mezzanine-openshift
+.. _`Redhat's OpenShift`: https://openshift.redhat.com/

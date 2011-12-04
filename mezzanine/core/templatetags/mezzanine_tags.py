@@ -100,7 +100,6 @@ def thumbnail(image_url, width, height):
                                     height, extension)
     thumb_path = os.path.join(image_dir, thumb_name)
     thumb_url = "%s/%s" % (os.path.dirname(image_url), thumb_name)
-
     # abort if thumbnail exists, original image doesn't exist, invalid width or
     # height are given, or PIL not installed
     if not image_url:
