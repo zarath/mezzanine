@@ -4,16 +4,41 @@ from uuid import uuid4
 from django import forms
 from django.forms.extras.widgets import SelectDateWidget
 from django.utils.safestring import mark_safe
-from django.utils.translation import ugettext_lazy as _
+from django.utils.translation import ugettext as _
+from django.contrib.staticfiles.storage import staticfiles_storage
 
 from mezzanine.conf import settings
 from mezzanine.core.models import Orderable
-from mezzanine.utils.urls import content_media_urls
 
 
-tinymce_main = [settings.ADMIN_MEDIA_PREFIX +
-                "tinymce/jscripts/tiny_mce/tiny_mce.js"]
-tinymce_setup = content_media_urls("js/tinymce_setup.js")
+class Html5Mixin(object):
+    """
+    Mixin for form classes. Adds HTML5 features to forms for client
+    side validation by the browser, like a "required" attribute and
+    "email" and "url" input types.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(Html5Mixin, self).__init__(*args, **kwargs)
+        if hasattr(self, "fields"):
+            # Autofocus first field
+            first_field = self.fields.itervalues().next()
+            first_field.widget.attrs["autofocus"] = ""
+
+            for name, field in self.fields.items():
+                if settings.FORMS_USE_HTML5:
+                    if isinstance(field, forms.EmailField):
+                        self.fields[name].widget.input_type = "email"
+                    elif isinstance(field, forms.URLField):
+                        self.fields[name].widget.input_type = "url"
+                if field.required:
+                    self.fields[name].widget.attrs["required"] = ""
+
+
+_tinymce_js = ()
+if settings.GRAPPELLI_INSTALLED:
+    _path = "grappelli/tinymce/jscripts/tiny_mce/tiny_mce.js"
+    _tinymce_js = (staticfiles_storage.url(_path), settings.TINYMCE_SETUP_JS)
 
 
 class TinyMceWidget(forms.Textarea):
@@ -23,7 +48,7 @@ class TinyMceWidget(forms.Textarea):
     """
 
     class Media:
-        js = tinymce_main + tinymce_setup
+        js = _tinymce_js
 
     def __init__(self, *args, **kwargs):
         super(TinyMceWidget, self).__init__(*args, **kwargs)
@@ -37,8 +62,8 @@ class OrderWidget(forms.HiddenInput):
     """
     def render(self, *args, **kwargs):
         rendered = super(OrderWidget, self).render(*args, **kwargs)
-        arrows = ["<img src='%simg/admin/arrow-%s.gif' />" %
-            (settings.ADMIN_MEDIA_PREFIX, arrow) for arrow in ("up", "down")]
+        arrows = ["<img src='%sadmin/img/admin/arrow-%s.gif' />" %
+            (settings.STATIC_URL, arrow) for arrow in ("up", "down")]
         arrows = "<span class='ordering'>%s</span>" % "".join(arrows)
         return rendered + mark_safe(arrows)
 
@@ -50,8 +75,8 @@ class DynamicInlineAdminForm(forms.ModelForm):
     """
 
     class Media:
-        js = content_media_urls("js/jquery-ui-1.8.14.custom.min.js",
-                                "js/dynamic_inline.js",)
+        js = ("mezzanine/js/jquery-ui-1.9.1.custom.min.js",
+              "mezzanine/js/admin/dynamic_inline.js",)
 
     def __init__(self, *args, **kwargs):
         super(DynamicInlineAdminForm, self).__init__(*args, **kwargs)
@@ -66,9 +91,17 @@ class SplitSelectDateTimeWidget(forms.SplitDateTimeWidget):
     """
     def __init__(self, attrs=None, date_format=None, time_format=None):
         date_widget = SelectDateWidget(attrs=attrs)
-        time_format = forms.SplitDateTimeWidget.time_format
         time_widget = forms.TimeInput(attrs=attrs, format=time_format)
         forms.MultiWidget.__init__(self, (date_widget, time_widget), attrs)
+
+
+class CheckboxSelectMultiple(forms.CheckboxSelectMultiple):
+    """
+    Wraps render with a CSS class for styling.
+    """
+    def render(self, *args, **kwargs):
+        rendered = super(CheckboxSelectMultiple, self).render(*args, **kwargs)
+        return mark_safe("<span class='multicheckbox'>%s</span>" % rendered)
 
 
 def get_edit_form(obj, field_names, data=None, files=None):

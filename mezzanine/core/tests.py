@@ -1,33 +1,45 @@
 
 import os
+from shutil import rmtree
+from urlparse import urlparse
+from uuid import uuid4
 
-from django.contrib.auth.models import User
+from django.contrib.auth.tokens import default_token_generator
 from django.contrib.contenttypes.models import ContentType
+from django.core import mail
 from django.core.urlresolvers import reverse
 from django.db import connection
 from django.template import Context, Template, TemplateDoesNotExist
 from django.template.loader import get_template
 from django.test import TestCase
 from django.utils.html import strip_tags
+from django.utils.http import int_to_base36
 from django.contrib.sites.models import Site
+from PIL import Image
 
-
+from mezzanine.accounts import get_profile_model, get_profile_user_fieldname
 from mezzanine.blog.models import BlogPost
 from mezzanine.conf import settings, registry
 from mezzanine.conf.models import Setting
 from mezzanine.core.models import CONTENT_STATUS_DRAFT
 from mezzanine.core.models import CONTENT_STATUS_PUBLISHED
+from mezzanine.core.request import current_request
+from mezzanine.core.templatetags.mezzanine_tags import thumbnail
 from mezzanine.forms import fields
 from mezzanine.forms.models import Form
+from mezzanine.galleries.models import Gallery, GALLERIES_UPLOAD_DIR
 from mezzanine.generic.forms import RatingForm
 from mezzanine.generic.models import ThreadedComment, AssignedKeyword, Keyword
-from mezzanine.generic.models import RATING_RANGE
-
-from mezzanine.pages.models import RichTextPage
-from mezzanine.utils.tests import run_pyflakes_for_package
-from mezzanine.utils.tests import run_pep8_for_package
+from mezzanine.pages.models import Page, RichTextPage
+from mezzanine.urls import PAGES_SLUG
 from mezzanine.utils.importing import import_dotted_path
-from mezzanine.core.templatetags.mezzanine_tags import thumbnail
+from mezzanine.utils.tests import copy_test_to_media, run_pyflakes_for_package
+from mezzanine.utils.tests import run_pep8_for_package
+from mezzanine.utils.html import TagCloser
+from mezzanine.utils.models import get_user_model
+from mezzanine.core.managers import DisplayableManager
+
+User = get_user_model()
 
 
 class Tests(TestCase):
@@ -39,10 +51,72 @@ class Tests(TestCase):
         """
         Create an admin user.
         """
+        connection.use_debug_cursor = True
         self._username = "test"
         self._password = "test"
         args = (self._username, "example@example.com", self._password)
         self._user = User.objects.create_superuser(*args)
+
+    def account_data(self, test_value):
+        """
+        Returns a dict with test data for all the user/profile fields.
+        """
+        # User fields
+        data = {"email": test_value + "@example.com"}
+        for field in ("first_name", "last_name", "username",
+                      "password1", "password2"):
+            if field.startswith("password"):
+                value = "x" * settings.ACCOUNTS_MIN_PASSWORD_LENGTH
+            else:
+                value = test_value
+            data[field] = value
+        # Profile fields
+        Profile = get_profile_model()
+        if Profile is not None:
+            user_fieldname = get_profile_user_fieldname()
+            for field in Profile._meta.fields:
+                if field.name not in (user_fieldname, "id"):
+                    if field.choices:
+                        value = field.choices[0][0]
+                    else:
+                        value = test_value
+                    data[field.name] = value
+        return data
+
+    def test_account(self):
+        """
+        Test account creation.
+        """
+        # Verification not required - test an active user is created.
+
+        data = self.account_data("test1")
+        settings.ACCOUNTS_VERIFICATION_REQUIRED = False
+        response = self.client.post(reverse("signup"), data, follow=True)
+        self.assertEqual(response.status_code, 200)
+        users = User.objects.filter(email=data["email"], is_active=True)
+        self.assertEqual(len(users), 1)
+        # Verification required - test an inactive user is created,
+        settings.ACCOUNTS_VERIFICATION_REQUIRED = True
+        data = self.account_data("test2")
+        emails = len(mail.outbox)
+        response = self.client.post(reverse("signup"), data, follow=True)
+        self.assertEqual(response.status_code, 200)
+        users = User.objects.filter(email=data["email"], is_active=False)
+        self.assertEqual(len(users), 1)
+        # Test the verification email.
+        self.assertEqual(len(mail.outbox), emails + 1)
+        self.assertEqual(len(mail.outbox[0].to), 1)
+        self.assertEqual(mail.outbox[0].to[0], data["email"])
+        # Test the verification link.
+        new_user = users[0]
+        verification_url = reverse("signup_verify", kwargs={
+            "uidb36": int_to_base36(new_user.id),
+            "token": default_token_generator.make_token(new_user),
+        })
+        response = self.client.get(verification_url, follow=True)
+        self.assertEqual(response.status_code, 200)
+        users = User.objects.filter(email=data["email"], is_active=True)
+        self.assertEqual(len(users), 1)
 
     def test_draft_page(self):
         """
@@ -50,7 +124,7 @@ class Tests(TestCase):
         """
         self.client.logout()
         draft = RichTextPage.objects.create(title="Draft",
-                                           status=CONTENT_STATUS_DRAFT)
+                                            status=CONTENT_STATUS_DRAFT)
         response = self.client.get(draft.get_absolute_url())
         self.assertEqual(response.status_code, 404)
         self.client.login(username=self._username, password=self._password)
@@ -60,12 +134,132 @@ class Tests(TestCase):
     def test_overridden_page(self):
         """
         Test that a page with a slug matching a non-page urlpattern
-        return ``True`` for its overridden property. The blog page from
-        the fixtures should satisfy this case.
+        return ``True`` for its overridden property.
         """
-        blog_page, created = RichTextPage.objects.get_or_create(
-                                                slug=settings.BLOG_SLUG)
-        self.assertTrue(blog_page.overridden())
+        # BLOG_SLUG is empty then urlpatterns for pages are prefixed
+        # with PAGE_SLUG, and generally won't be overridden. In this
+        # case, there aren't any overridding URLs by default, so bail
+        # on the test.
+        if PAGES_SLUG:
+            return
+        page, created = RichTextPage.objects.get_or_create(slug="edit")
+        self.assertTrue(page.overridden())
+
+    def test_page_ascendants(self):
+        """
+        Test the methods for looking up ascendants efficiently
+        behave as expected.
+        """
+        # Create related pages.
+        primary, created = RichTextPage.objects.get_or_create(title="Primary")
+        secondary, created = primary.children.get_or_create(title="Secondary")
+        tertiary, created = secondary.children.get_or_create(title="Tertiary")
+        # Force a site ID to avoid the site query when measuring queries.
+        setattr(current_request(), "site_id", settings.SITE_ID)
+
+        # Test that get_ascendants() returns the right thing.
+        page = Page.objects.get(id=tertiary.id)
+        ascendants = page.get_ascendants()
+        self.assertEqual(ascendants[0].id, secondary.id)
+        self.assertEqual(ascendants[1].id, primary.id)
+
+        # Test ascendants are returned in order for slug, using
+        # a single DB query.
+        connection.queries = []
+        pages_for_slug = Page.objects.with_ascendants_for_slug(tertiary.slug)
+        self.assertEqual(len(connection.queries), 1)
+        self.assertEqual(pages_for_slug[0].id, tertiary.id)
+        self.assertEqual(pages_for_slug[1].id, secondary.id)
+        self.assertEqual(pages_for_slug[2].id, primary.id)
+
+        # Test page.get_ascendants uses the cached attribute,
+        # without any more queries.
+        connection.queries = []
+        ascendants = pages_for_slug[0].get_ascendants()
+        self.assertEqual(len(connection.queries), 0)
+        self.assertEqual(ascendants[0].id, secondary.id)
+        self.assertEqual(ascendants[1].id, primary.id)
+
+        # Use a custom slug in the page path, and test that
+        # Page.objects.with_ascendants_for_slug fails, but
+        # correctly falls back to recursive queries.
+        secondary.slug += "custom"
+        secondary.save()
+        pages_for_slug = Page.objects.with_ascendants_for_slug(tertiary.slug)
+        self.assertEquals(len(pages_for_slug[0]._ascendants), 0)
+        connection.queries = []
+        ascendants = pages_for_slug[0].get_ascendants()
+        self.assertEqual(len(connection.queries), 2)  # 2 parent queries
+        self.assertEqual(pages_for_slug[0].id, tertiary.id)
+        self.assertEqual(ascendants[0].id, secondary.id)
+        self.assertEqual(ascendants[1].id, primary.id)
+
+    def test_set_parent(self):
+        old_parent, _ = RichTextPage.objects.get_or_create(title="Old parent")
+        new_parent, _ = RichTextPage.objects.get_or_create(title="New parent")
+        child, _ = RichTextPage.objects.get_or_create(title="Child",
+                                                      slug="kid")
+        self.assertTrue(child.parent is None)
+        self.assertTrue(child.slug == "kid")
+
+        child.set_parent(old_parent)
+        child.save()
+        self.assertEqual(child.parent_id, old_parent.id)
+        self.assertTrue(child.slug == "old-parent/kid")
+
+        child = RichTextPage.objects.get(id=child.id)
+        self.assertEqual(child.parent_id, old_parent.id)
+        self.assertTrue(child.slug == "old-parent/kid")
+
+        child.set_parent(new_parent)
+        child.save()
+        self.assertEqual(child.parent_id, new_parent.id)
+        self.assertTrue(child.slug == "new-parent/kid")
+
+        child = RichTextPage.objects.get(id=child.id)
+        self.assertEqual(child.parent_id, new_parent.id)
+        self.assertTrue(child.slug == "new-parent/kid")
+
+        child.set_parent(None)
+        child.save()
+        self.assertTrue(child.parent is None)
+        self.assertTrue(child.slug == "kid")
+
+        child = RichTextPage.objects.get(id=child.id)
+        self.assertTrue(child.parent is None)
+        self.assertTrue(child.slug == "kid")
+
+        child = RichTextPage(title="child2")
+        child.set_parent(new_parent)
+        self.assertEqual(child.slug, "new-parent/child2")
+
+        # Assert that cycles are detected.
+        p1, _ = RichTextPage.objects.get_or_create(title="p1")
+        p2, _ = RichTextPage.objects.get_or_create(title="p2")
+        p2.set_parent(p1)
+        with self.assertRaises(AttributeError):
+            p1.set_parent(p1)
+        with self.assertRaises(AttributeError):
+            p1.set_parent(p2)
+        p2c = RichTextPage.objects.get(title="p2")
+        with self.assertRaises(AttributeError):
+            p1.set_parent(p2c)
+
+    def test_set_slug(self):
+        parent, _ = RichTextPage.objects.get_or_create(title="Parent",
+                                                       slug="parent")
+        child, _ = RichTextPage.objects.get_or_create(title="Child",
+                                                      slug="parent/child",
+                                                      parent_id=parent.id)
+        parent.set_slug("new-parent-slug")
+        parent.save()
+        self.assertTrue(parent.slug == "new-parent-slug")
+
+        parent = RichTextPage.objects.get(id=parent.id)
+        self.assertTrue(parent.slug == "new-parent-slug")
+
+        child = RichTextPage.objects.get(id=child.id)
+        self.assertTrue(child.slug == "new-parent-slug/child")
 
     def test_description(self):
         """
@@ -74,8 +268,18 @@ class Tests(TestCase):
         """
         description = "<p>How now brown cow</p>"
         page = RichTextPage.objects.create(title="Draft",
-                                          content=description * 3)
+                                           content=description * 3)
         self.assertEqual(page.description, strip_tags(description))
+
+    def test_tagcloser(self):
+        """
+        Test tags are closed, and tags that shouldn't be closed aren't.
+        """
+        self.assertEqual(TagCloser("<p>Unclosed paragraph").html,
+                         "<p>Unclosed paragraph</p>")
+
+        self.assertEqual(TagCloser("Line break<br>").html,
+                         "Line break<br>")
 
     def test_device_specific_template(self):
         """
@@ -86,15 +290,14 @@ class Tests(TestCase):
             get_template("mobile/index.html")
         except TemplateDoesNotExist:
             return
-        template_name = lambda t: t.name if hasattr(t, "name") else t[0].name
         ua = settings.DEVICE_USER_AGENTS[0][1][0]
         kwargs = {"slug": "device-test"}
         url = reverse("page", kwargs=kwargs)
         kwargs["status"] = CONTENT_STATUS_PUBLISHED
         RichTextPage.objects.get_or_create(**kwargs)
-        default = self.client.get(url).template
-        mobile = self.client.get(url, HTTP_USER_AGENT=ua).template
-        self.assertNotEqual(template_name(default), template_name(mobile))
+        default = self.client.get(url)
+        mobile = self.client.get(url, HTTP_USER_AGENT=ua)
+        self.assertNotEqual(default.template_name[0], mobile.template_name[0])
 
     def test_blog_views(self):
         """
@@ -110,6 +313,16 @@ class Tests(TestCase):
                                             status=CONTENT_STATUS_PUBLISHED)
         response = self.client.get(blog_post.get_absolute_url())
         self.assertEqual(response.status_code, 200)
+        # Test the blog is login protected if its page has login_required
+        # set to True.
+        slug = settings.BLOG_SLUG or "/"
+        RichTextPage.objects.create(title="blog", slug=slug,
+                                    login_required=True)
+        response = self.client.get(reverse("blog_post_list"), follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(len(response.redirect_chain) > 0)
+        redirect_path = urlparse(response.redirect_chain[0][0]).path
+        self.assertEqual(redirect_path, settings.LOGIN_URL)
 
     def test_rating(self):
         """
@@ -117,15 +330,17 @@ class Tests(TestCase):
         """
         blog_post = BlogPost.objects.create(title="Ratings", user=self._user,
                                             status=CONTENT_STATUS_PUBLISHED)
-        data = RatingForm(blog_post).initial
-        for value in RATING_RANGE:
+        data = RatingForm(None, blog_post).initial
+        for value in settings.RATINGS_RANGE:
             data["value"] = value
             response = self.client.post(reverse("rating"), data=data)
             response.delete_cookie("mezzanine-rating")
         blog_post = BlogPost.objects.get(id=blog_post.id)
-        count = len(RATING_RANGE)
-        average = sum(RATING_RANGE) / float(count)
+        count = len(settings.RATINGS_RANGE)
+        _sum = sum(settings.RATINGS_RANGE)
+        average = _sum / float(count)
         self.assertEqual(blog_post.rating_count, count)
+        self.assertEqual(blog_post.rating_sum, _sum)
         self.assertEqual(blog_post.rating_average, average)
 
     def queries_used_for_template(self, template, **context):
@@ -133,11 +348,9 @@ class Tests(TestCase):
         Return the number of queries used when rendering a template
         string.
         """
-        settings.DEBUG = True
         connection.queries = []
         t = Template(template)
         t.render(Context(context))
-        settings.DEBUG = False
         return len(connection.queries)
 
     def create_recursive_objects(self, model, parent_field, **kwargs):
@@ -155,7 +368,7 @@ class Tests(TestCase):
                     kwargs[parent_field] = level2
                     model.objects.create(**kwargs)
 
-    def test_comments(self):
+    def test_comment_queries(self):
         """
         Test that rendering comments executes the same number of
         queries, regardless of the number of nested replies.
@@ -165,12 +378,18 @@ class Tests(TestCase):
         kwargs = {"content_type": content_type, "object_pk": blog_post.id,
                   "site_id": settings.SITE_ID}
         template = "{% load comment_tags %}{% comment_thread blog_post %}"
-        before = self.queries_used_for_template(template, blog_post=blog_post)
+        context = {
+            "blog_post": blog_post,
+            "posted_comment_form": None,
+            "unposted_comment_form": None,
+        }
+        before = self.queries_used_for_template(template, **context)
+        self.assertTrue(before > 0)
         self.create_recursive_objects(ThreadedComment, "replied_to", **kwargs)
-        after = self.queries_used_for_template(template, blog_post=blog_post)
+        after = self.queries_used_for_template(template, **context)
         self.assertEquals(before, after)
 
-    def test_page_menu(self):
+    def test_page_menu_queries(self):
         """
         Test that rendering a page menu executes the same number of
         queries regardless of the number of pages or levels of
@@ -179,10 +398,64 @@ class Tests(TestCase):
         template = ('{% load pages_tags %}'
                     '{% page_menu "pages/menus/tree.html" %}')
         before = self.queries_used_for_template(template)
+        self.assertTrue(before > 0)
         self.create_recursive_objects(RichTextPage, "parent", title="Page",
                                       status=CONTENT_STATUS_PUBLISHED)
         after = self.queries_used_for_template(template)
         self.assertEquals(before, after)
+
+    def test_page_menu_flags(self):
+        """
+        Test that pages only appear in the menu templates they've been
+        assigned to show in.
+        """
+        menus = []
+        pages = []
+        template = "{% load pages_tags %}"
+        for i, label, path in settings.PAGE_MENU_TEMPLATES:
+            menus.append(i)
+            pages.append(RichTextPage.objects.create(in_menus=list(menus),
+                title="Page for %s" % unicode(label),
+                status=CONTENT_STATUS_PUBLISHED))
+            template += "{%% page_menu '%s' %%}" % path
+        rendered = Template(template).render(Context({}))
+        for page in pages:
+            self.assertEquals(rendered.count(page.title), len(page.in_menus))
+
+    def test_page_menu_default(self):
+        """
+        Test that the default value for the ``in_menus`` field is used
+        and that it doesn't get forced to unicode.
+        """
+        old_menu_temp = settings.PAGE_MENU_TEMPLATES
+        old_menu_temp_def = settings.PAGE_MENU_TEMPLATES_DEFAULT
+        try:
+            # MenusField initializes choices and default during model
+            # loading, so we can't just override settings.
+            from mezzanine.pages.models import BasePage
+            from mezzanine.pages.fields import MenusField
+            settings.PAGE_MENU_TEMPLATES = ((8, 'a', 'a'), (9, 'b', 'b'))
+
+            settings.PAGE_MENU_TEMPLATES_DEFAULT = None
+
+            class P1(BasePage):
+                in_menus = MenusField(blank=True, null=True)
+            self.assertEqual(P1().in_menus[0], 8)
+
+            settings.PAGE_MENU_TEMPLATES_DEFAULT = tuple()
+
+            class P2(BasePage):
+                in_menus = MenusField(blank=True, null=True)
+            self.assertEqual(P2().in_menus, None)
+
+            settings.PAGE_MENU_TEMPLATES_DEFAULT = [9]
+
+            class P3(BasePage):
+                in_menus = MenusField(blank=True, null=True)
+            self.assertEqual(P3().in_menus[0], 9)
+        finally:
+            settings.PAGE_MENU_TEMPLATES = old_menu_temp
+            settings.PAGE_MENU_TEMPLATES_DEFAULT = old_menu_temp_def
 
     def test_keywords(self):
         """
@@ -390,24 +663,48 @@ class Tests(TestCase):
         site1.delete()
         site2.delete()
 
+    def test_gallery_import(self):
+        """
+        Test that a gallery creates images when given a zip file to
+        import, and that descriptions are created.
+        """
+        zip_name = "gallery.zip"
+        copy_test_to_media("mezzanine.core", zip_name)
+        title = str(uuid4())
+        gallery = Gallery.objects.create(title=title, zip_import=zip_name)
+        images = list(gallery.images.all())
+        self.assertTrue(images)
+        self.assertTrue(all([image.description for image in images]))
+        # Clean up.
+        rmtree(unicode(os.path.join(settings.MEDIA_ROOT,
+                                    GALLERIES_UPLOAD_DIR, title)))
+
     def test_thumbnail_generation(self):
         """
-        Test that a thumbnail is created.
+        Test that a thumbnail is created and resized.
         """
-        orig_name = "testleaf.jpg"
-        if not os.path.exists(os.path.join(settings.MEDIA_ROOT, orig_name)):
-            return
-        thumbnail_name = "testleaf-24x24.jpg"
-        thumbnail_path = os.path.join(settings.MEDIA_ROOT, thumbnail_name)
-        try:
-            os.remove(thumbnail_path)
-        except OSError:
-            pass
-        thumbnail_image = thumbnail(orig_name, 24, 24)
-        thumbnail_size = os.path.getsize(thumbnail_path)
-        try:
-            os.remove(thumbnail_path)
-        except OSError:
-            pass
-        self.assertEqual(thumbnail_image.lstrip("/"), thumbnail_name)
-        self.assertNotEqual(0, thumbnail_size)
+        image_name = "image.jpg"
+        size = (24, 24)
+        copy_test_to_media("mezzanine.core", image_name)
+        thumb_name = os.path.join(settings.THUMBNAILS_DIR_NAME,
+                                  image_name.replace(".", "-%sx%s." % size))
+        thumb_path = os.path.join(settings.MEDIA_ROOT, thumb_name)
+        thumb_image = thumbnail(image_name, *size)
+        self.assertEqual(os.path.normpath(thumb_image.lstrip("/")), thumb_name)
+        self.assertNotEqual(os.path.getsize(thumb_path), 0)
+        thumb = Image.open(thumb_path)
+        self.assertEqual(thumb.size, size)
+        # Clean up.
+        del thumb
+        os.remove(os.path.join(settings.MEDIA_ROOT, image_name))
+        os.remove(os.path.join(thumb_path))
+        rmtree(os.path.join(os.path.dirname(thumb_path)))
+
+    def test_searchable_manager_search_fields(self):
+        """
+        Test that SearchableManager can get appropriate params.
+        """
+        manager = DisplayableManager()
+        self.assertFalse(manager._search_fields)
+        manager = DisplayableManager(search_fields={'foo': 10})
+        self.assertTrue(manager._search_fields)

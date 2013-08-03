@@ -1,6 +1,10 @@
 
+from copy import copy
+
+from django.conf import settings
 from django.contrib.contenttypes.generic import GenericRelation
-from django.db.models import IntegerField, CharField, FloatField
+from django.core.exceptions import ImproperlyConfigured
+from django.db.models import get_model, IntegerField, CharField, FloatField
 from django.db.models.signals import post_save, post_delete
 
 
@@ -28,11 +32,24 @@ class BaseGenericRelation(GenericRelation):
         Set up some defaults and check for a ``related_model``
         attribute for the ``to`` argument.
         """
+        self.frozen_by_south = kwargs.pop("frozen_by_south", False)
         kwargs.setdefault("object_id_field", "object_pk")
         to = getattr(self, "related_model", None)
         if to:
             kwargs.setdefault("to", to)
         super(BaseGenericRelation, self).__init__(*args, **kwargs)
+
+    def db_type(self, connection):
+        """
+        South expects this to return a string for initial migrations
+        against MySQL, to check for text or geometery columns. These
+        generic fields are neither of those, but returning an empty
+        string here at least allows migrations to run successfully.
+        See http://south.aeracode.org/ticket/1204
+        """
+        if self.frozen_by_south:
+            return ""
+        return None
 
     def contribute_to_class(self, cls, name):
         """
@@ -41,16 +58,26 @@ class BaseGenericRelation(GenericRelation):
         the related item save and delete signals for calling
         ``related_items_changed``.
         """
-        super(BaseGenericRelation, self).contribute_to_class(cls, name)
+        for field in cls._meta.many_to_many:
+            if isinstance(field, self.__class__):
+                e = "Multiple %s fields are not supported (%s.%s, %s.%s)" % (
+                    self.__class__.__name__, cls.__name__, cls.__name__,
+                    name, field.name)
+                raise ImproperlyConfigured(e)
         self.related_field_name = name
+        super(BaseGenericRelation, self).contribute_to_class(cls, name)
         # Not applicable to abstract classes, and in fact will break.
-        if not cls._meta.abstract:
+        if not cls._meta.abstract and not self.frozen_by_south:
             for (name_string, field) in self.fields.items():
                 if "%s" in name_string:
                     name_string = name_string % name
                 if not field.verbose_name:
                     field.verbose_name = self.verbose_name
-                cls.add_to_class(name_string, field)
+                cls.add_to_class(name_string, copy(field))
+            # Add a getter function to the model we can use to retrieve
+            # the field/manager by name.
+            getter_name = "get_%s_name" % self.__class__.__name__.lower()
+            cls.add_to_class(getter_name, lambda self: name)
             # For some unknown reason the signal won't be triggered
             # if given a sender arg, particularly when running
             # Cartridge with the field RichTextPage.keywords - so
@@ -67,13 +94,19 @@ class BaseGenericRelation(GenericRelation):
         """
         # Manually check that the instance matches the relation,
         # since we don't specify a sender for the signal.
-        if not isinstance(kwargs["instance"], self.rel.to):
+        try:
+            to = self.rel.to
+            if isinstance(to, basestring):
+                to = get_model(*to.split(".", 1))
+            if not isinstance(kwargs["instance"], to):
+                raise TypeError
+        except (TypeError, ValueError):
             return
         for_model = kwargs["instance"].content_type.model_class()
         if issubclass(for_model, self.model):
             instance_id = kwargs["instance"].object_pk
             try:
-                instance = self.model.objects.get(id=instance_id)
+                instance = for_model.objects.get(id=instance_id)
             except self.model.DoesNotExist:
                 # Instance itself was deleted - signals are irrelevant.
                 return
@@ -94,8 +127,9 @@ class BaseGenericRelation(GenericRelation):
 
 class CommentsField(BaseGenericRelation):
     """
-    Stores the number of comments against the ``COMMENTS_FIELD_count``
-    field when a comment is saved or deleted.
+    Stores the number of comments against the
+    ``COMMENTS_FIELD_NAME_count`` field when a comment is saved or
+    deleted.
     """
 
     related_model = "generic.ThreadedComment"
@@ -119,12 +153,13 @@ class CommentsField(BaseGenericRelation):
 class KeywordsField(BaseGenericRelation):
     """
     Stores the keywords as a single string into the
-    ``KEYWORDS_FIELD_string``  field for convenient access when
+    ``KEYWORDS_FIELD_NAME_string`` field for convenient access when
     searching.
     """
 
     related_model = "generic.AssignedKeyword"
-    fields = {"%s_string": CharField(blank=True, max_length=500)}
+    fields = {"%s_string": CharField(editable=False, blank=True,
+                                     max_length=500)}
 
     def __init__(self, *args, **kwargs):
         """
@@ -141,21 +176,34 @@ class KeywordsField(BaseGenericRelation):
         isn't a form field mapped to ``GenericRelation`` model fields.
         """
         from mezzanine.generic.forms import KeywordsWidget
-        kwargs["widget"] = KeywordsWidget()
+        kwargs["widget"] = KeywordsWidget
         return super(KeywordsField, self).formfield(**kwargs)
 
     def save_form_data(self, instance, data):
         """
         The ``KeywordsWidget`` field will return data as a string of
         comma separated IDs for the ``Keyword`` model - convert these
-        into actual ``AssignedKeyword`` instances.
+        into actual ``AssignedKeyword`` instances. Also delete
+        ``Keyword`` instances if their last related ``AssignedKeyword``
+        instance is being removed.
         """
-        from mezzanine.generic.models import AssignedKeyword
-        # Remove current assigned keywords.
+        from mezzanine.generic.models import AssignedKeyword, Keyword
         related_manager = getattr(instance, self.name)
+        # Get a list of Keyword IDs being removed.
+        old_ids = [str(a.keyword_id) for a in related_manager.all()]
+        new_ids = data.split(",")
+        removed_ids = set(old_ids) - set(new_ids)
+        # Remove current AssignedKeyword instances.
         related_manager.all().delete()
+        # Convert the data into AssignedKeyword instances.
         if data:
-            data = [AssignedKeyword(keyword_id=i) for i in data.split(",")]
+            data = [AssignedKeyword(keyword_id=i) for i in new_ids]
+        # Remove Keyword instances than no longer have a
+        # related AssignedKeyword instance.
+        existing = AssignedKeyword.objects.filter(keyword__id__in=removed_ids)
+        existing_ids = set([str(a.keyword_id) for a in existing])
+        unused_ids = removed_ids - existing_ids
+        Keyword.objects.filter(id__in=unused_ids).delete()
         super(KeywordsField, self).save_form_data(instance, data)
 
     def contribute_to_class(self, cls, name):
@@ -168,10 +216,13 @@ class KeywordsField(BaseGenericRelation):
         if hasattr(cls, "search_fields") and name in cls.search_fields:
             try:
                 weight = cls.search_fields[name]
-            except AttributeError:
+            except TypeError:
                 # search_fields is a sequence.
                 index = cls.search_fields.index(name)
+                search_fields_type = type(cls.search_fields)
+                cls.search_fields = list(cls.search_fields)
                 cls.search_fields[index] = string_field_name
+                cls.search_fields = search_fields_type(cls.search_fields)
             else:
                 del cls.search_fields[name]
                 cls.search_fields[string_field_name] = weight
@@ -190,13 +241,15 @@ class KeywordsField(BaseGenericRelation):
 
 class RatingField(BaseGenericRelation):
     """
-    Stores the average rating against the ``RATING_FIELD_average``
-    field when a rating is saved or deleted.
+    Stores the rating count and average against the
+    ``RATING_FIELD_NAME_count`` and ``RATING_FIELD_NAME_average``
+    fields when a rating is saved or deleted.
     """
 
     related_model = "generic.Rating"
-    fields = {"%s_count": IntegerField(default=0),
-              "%s_average": FloatField(default=0)}
+    fields = {"%s_count": IntegerField(default=0, editable=False),
+              "%s_sum": IntegerField(default=0, editable=False),
+              "%s_average": FloatField(default=0, editable=False)}
 
     def related_items_changed(self, instance, related_manager):
         """
@@ -204,7 +257,21 @@ class RatingField(BaseGenericRelation):
         """
         ratings = [r.value for r in related_manager.all()]
         count = len(ratings)
-        average = sum(ratings) / float(count) if count > 0 else 0
+        _sum = sum(ratings)
+        average = _sum / float(count) if count > 0 else 0
         setattr(instance, "%s_count" % self.related_field_name, count)
+        setattr(instance, "%s_sum" % self.related_field_name, _sum)
         setattr(instance, "%s_average" % self.related_field_name, average)
         instance.save()
+
+
+# South requires custom fields to be given "rules".
+# See http://south.aeracode.org/docs/customfields.html
+if "south" in settings.INSTALLED_APPS:
+    try:
+        from south.modelsinspector import add_introspection_rules
+        add_introspection_rules(rules=[((BaseGenericRelation,), [],
+                            {"frozen_by_south": [True, {"is_value": True}]})],
+            patterns=["mezzanine\.generic\.fields\."])
+    except ImportError:
+        pass

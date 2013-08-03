@@ -15,6 +15,7 @@ class ThreadedCommentAdmin(CommentsAdmin):
     list_display = ("avatar_link", "intro", "submit_date", "is_public",
                     "is_removed", "admin_link")
     list_display_links = ("intro", "submit_date")
+    list_filter = [f for f in CommentsAdmin.list_filter if f != "site"]
     fieldsets = (
         (_("User"), {"fields": ("user_name", "user_email", "user_url")}),
         (None, {"fields": ("comment", ("is_public", "is_removed"))}),
@@ -27,5 +28,6 @@ class ThreadedCommentAdmin(CommentsAdmin):
         return actions
 
 
-if not settings.COMMENTS_DISQUS_SHORTNAME:
+generic_comments = getattr(settings, "COMMENTS_APP", "") == "mezzanine.generic"
+if generic_comments and not settings.COMMENTS_DISQUS_SHORTNAME:
     admin.site.register(ThreadedComment, ThreadedCommentAdmin)

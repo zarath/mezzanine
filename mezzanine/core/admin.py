@@ -1,21 +1,32 @@
-
 from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin
 from django.db.models import AutoField
+from django.forms import ValidationError, ModelForm
 from django.http import HttpResponseRedirect
+from django.shortcuts import redirect
 from django.utils.translation import ugettext_lazy as _
+from django.contrib.auth.models import User as AuthUser
 
 from mezzanine.conf import settings
 from mezzanine.core.forms import DynamicInlineAdminForm
-from mezzanine.core.models import Orderable
-from mezzanine.utils.urls import content_media_urls, admin_url
+from mezzanine.core.models import (Orderable, SitePermission,
+                                   CONTENT_STATUS_PUBLISHED)
+from mezzanine.utils.urls import admin_url
+from mezzanine.utils.models import get_user_model
 
 
-# For >= Django 1.2 include a backport of collapse.js which targets
-# earlier versions of the admin.
-from django import VERSION
-displayable_js = []
-if VERSION >= (1, 2, 0):
-    displayable_js = content_media_urls("js/collapse_backport.js")
+User = get_user_model()
+
+
+class DisplayableAdminForm(ModelForm):
+
+    def clean_content(form):
+        status = form.cleaned_data.get("status")
+        content = form.cleaned_data.get("content")
+        if status == CONTENT_STATUS_PUBLISHED and not content:
+            raise ValidationError(_("This field is required if status "
+                                    "is set to published."))
+        return content
 
 
 class DisplayableAdmin(admin.ModelAdmin):
@@ -23,22 +34,32 @@ class DisplayableAdmin(admin.ModelAdmin):
     Admin class for subclasses of the abstract ``Displayable`` model.
     """
 
-    class Media:
-        js = displayable_js
-
     list_display = ("title", "status", "admin_link")
     list_display_links = ("title",)
     list_editable = ("status",)
-    list_filter = ("status",)
-    search_fields = ("title", "content",)
+    list_filter = ("status", "keywords__keyword")
     date_hierarchy = "publish_date"
     radio_fields = {"status": admin.HORIZONTAL}
     fieldsets = (
-        (None, {"fields": ["title", "status",
-            ("publish_date", "expiry_date"), ]}),
-        (_("Meta data"), {"fields": ("slug", "description", "keywords"),
-            "classes": ("collapse-closed",)},),
+        (None, {
+            "fields": ["title", "status", ("publish_date", "expiry_date")],
+        }),
+        (_("Meta data"), {
+            "fields": ["_meta_title", "slug",
+                       ("description", "gen_description"),
+                        "keywords", "in_sitemap"],
+            "classes": ("collapse-closed",)
+        }),
     )
+
+    form = DisplayableAdminForm
+
+    def __init__(self, *args, **kwargs):
+        super(DisplayableAdmin, self).__init__(*args, **kwargs)
+        try:
+            self.search_fields = self.model.objects.get_search_fields().keys()
+        except AttributeError:
+            pass
 
 
 class BaseDynamicInlineAdmin(object):
@@ -92,8 +113,14 @@ class OwnableAdmin(admin.ModelAdmin):
     """
     Admin class for models that subclass the abstract ``Ownable``
     model. Handles limiting the change list to objects owned by the
-    logged in user, as well as setting the owner of newly created \
+    logged in user, as well as setting the owner of newly created
     objects to the logged in user.
+
+    Remember that this will include the ``user`` field in the required
+    fields for the admin change form which may not be desirable. The
+    best approach to solve this is to define a ``fieldsets`` attribute
+    that excludes the ``user`` field or simple add ``user`` to your
+    admin excludes: ``exclude = ('user',)``
     """
 
     def save_form(self, request, form, change):
@@ -108,10 +135,19 @@ class OwnableAdmin(admin.ModelAdmin):
     def queryset(self, request):
         """
         Filter the change list by currently logged in user if not a
-        superuser.
+        superuser. We also skip filtering if the model for this admin
+        class has been added to the sequence in the setting
+        ``OWNABLE_MODELS_ALL_EDITABLE``, which contains models in the
+        format ``app_label.object_name``, and allows models subclassing
+        ``Ownable`` to be excluded from filtering, eg: ownership should
+        not imply permission to edit.
         """
+        opts = self.model._meta
+        model_name = ("%s.%s" % (opts.app_label, opts.object_name)).lower()
+        models_all_editable = settings.OWNABLE_MODELS_ALL_EDITABLE
+        models_all_editable = [m.lower() for m in models_all_editable]
         qs = super(OwnableAdmin, self).queryset(request)
-        if request.user.is_superuser:
+        if request.user.is_superuser or model_name in models_all_editable:
             return qs
         return qs.filter(user__id=request.user.id)
 
@@ -123,6 +159,17 @@ class SingletonAdmin(admin.ModelAdmin):
     instance exists, and to the add view when it doesn't.
     """
 
+    def handle_save(self, request, response):
+        """
+        Handles redirect back to the dashboard when save is clicked
+        (eg not save and continue editing), by checking for a redirect
+        response, which only occurs if the form is valid.
+        """
+        form_valid = isinstance(response, HttpResponseRedirect)
+        if request.POST.get("_save") and form_valid:
+            return redirect("admin:index")
+        return response
+
     def add_view(self, *args, **kwargs):
         """
         Redirect to the change view if the singleton instance exists.
@@ -130,10 +177,11 @@ class SingletonAdmin(admin.ModelAdmin):
         try:
             singleton = self.model.objects.get()
         except (self.model.DoesNotExist, self.model.MultipleObjectsReturned):
-            return super(SingletonAdmin, self).add_view(*args, **kwargs)
-        else:
-            change_url = admin_url(self.model, "change", singleton.id)
-            return HttpResponseRedirect(change_url)
+            kwargs.setdefault("extra_context", {})
+            kwargs["extra_context"]["singleton"] = True
+            response = super(SingletonAdmin, self).add_view(*args, **kwargs)
+            return self.handle_save(args[0], response)
+        return redirect(admin_url(self.model, "change", singleton.id))
 
     def changelist_view(self, *args, **kwargs):
         """
@@ -145,25 +193,35 @@ class SingletonAdmin(admin.ModelAdmin):
         except self.model.MultipleObjectsReturned:
             return super(SingletonAdmin, self).changelist_view(*args, **kwargs)
         except self.model.DoesNotExist:
-            add_url = admin_url(self.model, "add")
-            return HttpResponseRedirect(add_url)
-        else:
-            change_url = admin_url(self.model, "change", singleton.id)
-            return HttpResponseRedirect(change_url)
+            return redirect(admin_url(self.model, "add"))
+        return redirect(admin_url(self.model, "change", singleton.id))
 
-    def change_view(self, request, object_id, extra_context=None):
+    def change_view(self, *args, **kwargs):
         """
         If only the singleton instance exists, pass ``True`` for
         ``singleton`` into the template which will use CSS to hide
-        relevant buttons.
+        the "save and add another" button.
         """
-        if extra_context is None:
-            extra_context = {}
-        try:
-            self.model.objects.get()
-        except (self.model.DoesNotExist, self.model.MultipleObjectsReturned):
-            pass
-        else:
-            extra_context["singleton"] = True
-        return super(SingletonAdmin, self).change_view(request, object_id,
-                                                       extra_context)
+        kwargs.setdefault("extra_context", {})
+        kwargs["extra_context"]["singleton"] = self.model.objects.count() == 1
+        response = super(SingletonAdmin, self).change_view(*args, **kwargs)
+        return self.handle_save(args[0], response)
+
+
+###########################################
+# Site Permissions Inlines for User Admin #
+###########################################
+
+class SitePermissionInline(admin.TabularInline):
+    model = SitePermission
+    max_num = 1
+    can_delete = False
+
+
+class SitePermissionUserAdmin(UserAdmin):
+    inlines = [SitePermissionInline]
+
+# only register if User hasn't been overridden
+if User == AuthUser:
+    admin.site.unregister(User)
+    admin.site.register(User, SitePermissionUserAdmin)

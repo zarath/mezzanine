@@ -2,10 +2,15 @@
 import re
 import unicodedata
 
-from django.core.urlresolvers import reverse
+from django.core.exceptions import ObjectDoesNotExist
+from django.core.urlresolvers import (resolve, reverse, NoReverseMatch,
+                                      get_script_prefix)
+from django.shortcuts import redirect
 from django.utils.encoding import smart_unicode
+from django.utils import translation
 
 from mezzanine.conf import settings
+from mezzanine.utils.importing import import_dotted_path
 
 
 def admin_url(model, url, object_id=None):
@@ -20,23 +25,38 @@ def admin_url(model, url, object_id=None):
     return reverse(url, args=args)
 
 
-def content_media_urls(*paths):
+def home_slug():
     """
-    Prefix the list of paths with the ``CONTENT_MEDIA_URL`` setting for
-    internally hosted JS and CSS files.
+    Returns the slug arg defined for the ``home`` urlpattern, which
+    is the definitive source of the ``url`` field defined for an
+    editable homepage object.
     """
-    media_url = settings.CONTENT_MEDIA_URL.strip("/")
-    return ["/%s/%s" % (media_url, path) for path in paths]
+    prefix = get_script_prefix()
+    slug = reverse("home")
+    if slug.startswith(prefix):
+        slug = '/' + slug[len(prefix):]
+    try:
+        return resolve(slug).kwargs["slug"]
+    except KeyError:
+        return slug
 
 
 def slugify(s):
+    """
+    Loads the callable defined by the ``SLUGIFY`` setting, which defaults
+    to the ``slugify_unicode`` function.
+    """
+    return import_dotted_path(settings.SLUGIFY)(s)
+
+
+def slugify_unicode(s):
     """
     Replacement for Django's slugify which allows unicode chars in
     slugs, for URLs in Chinese, Russian, etc.
     Adopted from https://github.com/mozilla/unicode-slugify/
     """
     chars = []
-    for char in smart_unicode(s):
+    for char in unicode(smart_unicode(s)):
         cat = unicodedata.category(char)[0]
         if cat in "LN" or char in "-_~":
             chars.append(char)
@@ -45,12 +65,54 @@ def slugify(s):
     return re.sub("[-\s]+", "-", "".join(chars).strip()).lower()
 
 
-def static_urls(url_prefix, document_root):
+def unique_slug(queryset, slug_field, slug):
     """
-    Returns the ``urlpattern`` for serving static content from the given
-    ``document_root`` over the given ``url_prefix``.
+    Ensures a slug is unique for the given queryset, appending
+    an integer to its end until the slug is unique.
     """
-    pattern = "^%s/(?P<path>.*)$" % url_prefix.strip("/")
-    view = "django.views.static.serve"
-    args = {"document_root": document_root}
-    return (pattern, view, args)
+    i = 0
+    while True:
+        if i > 0:
+            if i > 1:
+                slug = slug.rsplit("-", 1)[0]
+            slug = "%s-%s" % (slug, i)
+        try:
+            queryset.get(**{slug_field: slug})
+        except ObjectDoesNotExist:
+            break
+        i += 1
+    return slug
+
+
+def login_redirect(request):
+    """
+    Returns the redirect response for login/signup. Favors:
+    - next param
+    - LOGIN_REDIRECT_URL setting
+    - homepage
+    """
+    ignorable_nexts = ("",)
+    if "mezzanine.accounts" in settings.INSTALLED_APPS:
+        from mezzanine.accounts import urls
+        ignorable_nexts += (urls.SIGNUP_URL, urls.LOGIN_URL, urls.LOGOUT_URL)
+    next = request.REQUEST.get("next", "")
+    if next in ignorable_nexts:
+        try:
+            next = reverse(settings.LOGIN_REDIRECT_URL)
+        except NoReverseMatch:
+            next = "/"
+    return redirect(next)
+
+
+def path_to_slug(path):
+    """
+    Removes everything from the given URL path, including
+    language code and ``PAGES_SLUG`` if any is set, returning
+    a slug that would match a ``Page`` instance's slug.
+    """
+    from mezzanine.urls import PAGES_SLUG
+    lang_code = translation.get_language_from_path(path)
+    for prefix in (lang_code, settings.SITE_PREFIX, PAGES_SLUG):
+        if prefix:
+            path = path.replace(prefix, "", 1)
+    return path.strip("/") or "/"

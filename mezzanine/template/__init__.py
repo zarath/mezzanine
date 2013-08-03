@@ -1,11 +1,11 @@
 
 from functools import wraps
 
-from django.utils.itercompat import is_iterable
 from django import template
 from django.template.context import Context
+from django.template.loader import get_template, select_template
 
-from mezzanine.template.loader import get_template, select_template
+from mezzanine.utils.device import templates_for_device
 
 
 class Library(template.Library):
@@ -27,9 +27,22 @@ class Library(template.Library):
             class AsTagNode(template.Node):
                 def render(self, context):
                     parts = token.split_contents()
+
                     # Resolve variables if their names are given.
-                    args = [context.get(arg, arg) for arg in parts[1:-2]]
-                    context[parts[-1]] = tag_func(*args)
+                    def resolve(arg):
+                        try:
+                            return template.Variable(arg).resolve(context)
+                        except template.VariableDoesNotExist:
+                            return arg
+                    args, kwargs = [], {}
+                    for arg in parts[1:-2]:
+                        if "=" in arg:
+                            name, val = arg.split("=", 1)
+                            if name in tag_func.func_code.co_varnames:
+                                kwargs[name] = resolve(val)
+                                continue
+                        args.append(resolve(arg))
+                    context[parts[-1]] = tag_func(*args, **kwargs)
                     return ""
             return AsTagNode()
         return self.tag(tag_wrapper)
@@ -75,13 +88,13 @@ class Library(template.Library):
 
         return self.tag(tag_wrapper)
 
-    def inclusion_tag(self, file_name, context_class=Context,
-                      takes_context=False):
+    def inclusion_tag(self, name, context_class=Context, takes_context=False):
         """
-        Context aware replacement for Django's ``inclusion_tag`` using
-        Mezzanine's ``get_template`` and ``select_template``.
+        Replacement for Django's ``inclusion_tag`` which looks up device
+        specific templates at render time.
         """
         def tag_decorator(tag_func):
+
             @wraps(tag_func)
             def tag_wrapper(parser, token):
 
@@ -89,11 +102,13 @@ class Library(template.Library):
 
                     def render(self, context):
                         if not getattr(self, "nodelist", False):
-                            if not isinstance(file_name, basestring) and \
-                                is_iterable(file_name):
-                                t = select_template(file_name, context)
+                            try:
+                                request = context["request"]
+                            except KeyError:
+                                t = get_template(name)
                             else:
-                                t = get_template(file_name, context)
+                                ts = templates_for_device(request, name)
+                                t = select_template(ts)
                             self.nodelist = t.nodelist
                         parts = [template.Variable(part).resolve(context)
                                  for part in token.split_contents()[1:]]

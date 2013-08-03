@@ -1,21 +1,16 @@
 """
 This is the main ``urlconf`` for Mezzanine - it sets up patterns for
 all the various Mezzanine apps, third-party apps like Grappelli and
-filebrowser, and adds some handling for media files during development
-when the ``runserver`` command is being used, that also deals with
-hosting theme development when the ``THEME`` setting is defined.
+filebrowser.
 """
 
-from urlparse import urlsplit
-
-from django.conf.urls.defaults import *
+from django.conf.urls import patterns, include
 from django.contrib import admin
 from django.contrib.admin.sites import NotRegistered
 from django.http import HttpResponse
 
 from mezzanine.conf import settings
 from mezzanine.core.sitemaps import DisplayableSitemap
-from mezzanine.utils.urls import static_urls
 
 
 # Remove unwanted models from the admin that are installed by default with
@@ -35,13 +30,21 @@ for model in settings.ADMIN_REMOVAL:
 
 urlpatterns = []
 
+# JavaScript localization feature
+js_info_dict = {
+    'domain': 'django',
+}
+
+urlpatterns += patterns('django.views.i18n',
+    (r'^jsi18n/(?P<packages>\S+?)/$', 'javascript_catalog', js_info_dict),
+)
+
 # Django's sitemap app.
 if "django.contrib.sitemaps" in settings.INSTALLED_APPS:
     sitemaps = {"sitemaps": {"all": DisplayableSitemap}}
     urlpatterns += patterns("django.contrib.sitemaps.views",
         ("^sitemap\.xml$", "sitemap", sitemaps)
     )
-
 
 # Return a robots.txt that disallows all spiders when DEBUG is True.
 if getattr(settings, "DEBUG", False):
@@ -53,42 +56,52 @@ if getattr(settings, "DEBUG", False):
 # Filebrowser admin media library.
 if getattr(settings, "PACKAGE_NAME_FILEBROWSER") in settings.INSTALLED_APPS:
     urlpatterns += patterns("",
-        ("^admin/filebrowser/", include("%s.urls" %
+        ("^admin/media-library/", include("%s.urls" %
                                         settings.PACKAGE_NAME_FILEBROWSER)),
-        static_urls(settings.FILEBROWSER_URL_FILEBROWSER_MEDIA.strip("/"),
-                    settings.FILEBROWSER_PATH_FILEBROWSER_MEDIA),
-    )
-
-# Grappelli admin skin.
-_pattern = urlsplit(settings.ADMIN_MEDIA_PREFIX).path.strip("/").split("/")[0]
-if getattr(settings, "PACKAGE_NAME_GRAPPELLI") in settings.INSTALLED_APPS:
-    urlpatterns += patterns("",
-        ("^grappelli/", include("%s.urls" % settings.PACKAGE_NAME_GRAPPELLI)),
-        static_urls(_pattern, settings.GRAPPELLI_MEDIA_PATH),
     )
 
 # Miscellanous Mezzanine patterns.
 urlpatterns += patterns("",
     ("^", include("mezzanine.core.urls")),
     ("^", include("mezzanine.generic.urls")),
-    static_urls(settings.CONTENT_MEDIA_URL, settings.CONTENT_MEDIA_PATH),
 )
 
-# Mezzanine's Blog app.
-if "mezzanine.blog" in settings.INSTALLED_APPS:
+# Mezzanine's Accounts app
+_old_accounts_enabled = getattr(settings, "ACCOUNTS_ENABLED", False)
+if _old_accounts_enabled:
+    import warnings
+    warnings.warn("The setting ACCOUNTS_ENABLED is deprecated. Please "
+                  "add mezzanine.accounts to INSTALLED_APPS.")
+if _old_accounts_enabled or "mezzanine.accounts" in settings.INSTALLED_APPS:
+    # We don't define a URL prefix here such as /account/ since we want
+    # to honour the LOGIN_* settings, which Django has prefixed with
+    # /account/ by default. So those settings are used in accounts.urls
     urlpatterns += patterns("",
-        ("^%s/" % settings.BLOG_SLUG, include("mezzanine.blog.urls")),
+        ("^", include("mezzanine.accounts.urls")),
     )
+
+# Mezzanine's Blog app.
+blog_installed = "mezzanine.blog" in settings.INSTALLED_APPS
+if blog_installed:
+    BLOG_SLUG = settings.BLOG_SLUG.rstrip("/")
+    blog_patterns = patterns("",
+        ("^%s" % BLOG_SLUG, include("mezzanine.blog.urls")),
+    )
+    urlpatterns += blog_patterns
 
 # Mezzanine's Pages app.
+PAGES_SLUG = ""
 if "mezzanine.pages" in settings.INSTALLED_APPS:
-    urlpatterns += patterns("",
-        ("^", include("mezzanine.pages.urls")),
-    )
-
-# Hosting of static assets when using built-in runserver during development.
-if getattr(settings, "DEV_SERVER", False):
-    _pattern = "^%s/(?P<path>.*)$" % settings.MEDIA_URL.strip("/")
-    urlpatterns += patterns("",
-        (_pattern, "mezzanine.core.views.serve_with_theme"),
-    )
+    # No BLOG_SLUG means catch-all patterns belong to the blog,
+    # so give pages their own prefix and inject them before the
+    # blog urlpatterns.
+    if blog_installed and not BLOG_SLUG:
+        PAGES_SLUG = getattr(settings, "PAGES_SLUG", "pages").strip("/") + "/"
+        blog_patterns_start = urlpatterns.index(blog_patterns[0])
+        urlpatterns[blog_patterns_start:len(blog_patterns)] = patterns("",
+            ("^%s" % unicode(PAGES_SLUG), include("mezzanine.pages.urls")),
+        )
+    else:
+        urlpatterns += patterns("",
+            ("^", include("mezzanine.pages.urls")),
+        )

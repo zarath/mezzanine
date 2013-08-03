@@ -1,11 +1,11 @@
 
-from django.db.models import Manager
-from django.contrib.sites.managers import CurrentSiteManager
+from django.contrib.comments.managers import CommentManager as DjangoCM
 
 from mezzanine.conf import settings
+from mezzanine.core.managers import CurrentSiteManager
 
 
-class CommentManager(Manager):
+class CommentManager(CurrentSiteManager, DjangoCM):
     """
     Provides filter for restricting comments that are not approved
     if ``COMMENTS_UNAPPROVED_VISIBLE`` is set to ``False``.
@@ -36,8 +36,24 @@ class CommentManager(Manager):
 
 
 class KeywordManager(CurrentSiteManager):
-    """
-    Provides natural key method.
-    """
+
     def get_by_natural_key(self, value):
+        """
+        Provides natural key method.
+        """
         return self.get(value=value)
+
+    def get_or_create_iexact(self, **kwargs):
+        """
+        Case insensitive title version of ``get_or_create``. Also
+        allows for multiple existing results.
+        """
+        lookup = dict(**kwargs)
+        try:
+            lookup["title__iexact"] = lookup.pop("title")
+        except KeyError:
+            pass
+        try:
+            return self.filter(**lookup)[0], False
+        except IndexError:
+            return self.create(**kwargs), True

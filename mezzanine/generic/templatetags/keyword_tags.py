@@ -1,11 +1,9 @@
 
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Model, Count
-from django.template import TemplateSyntaxError
 
 from mezzanine import template
 from mezzanine.conf import settings
-from mezzanine.generic.fields import KeywordsField
 from mezzanine.generic.models import AssignedKeyword, Keyword
 
 
@@ -21,33 +19,26 @@ def keywords_for(*args):
     attribute that can be used to create a tag cloud.
     """
 
-    if args[0] is None:
-        return []
-
     # Handle a model instance.
     if isinstance(args[0], Model):
         obj = args[0]
         if hasattr(obj, "get_content_model"):
-            obj = obj.get_content_model()
-        # For now we just use the first ``KeywordsField`` found.
-        for field in obj._meta.many_to_many:
-            if isinstance(field, KeywordsField):
-                break
-        else:
-            error = ("The first argument `%s` given for the keywords_for tag "
-                     "does not contain a `KeywordsField`." % args[0])
-            raise TemplateSyntaxError(error)
-        keywords_manager = getattr(obj, field.name)
-        return [a.keyword for a in keywords_manager.select_related("keyword")]
+            obj = obj.get_content_model() or obj
+        keywords_name = obj.get_keywordsfield_name()
+        keywords_queryset = getattr(obj, keywords_name).all()
+        # Keywords may have been prefetched already. If not, we
+        # need select_related for the actual keywords.
+        prefetched = getattr(obj, "_prefetched_objects_cache", {})
+        if keywords_name not in prefetched:
+            keywords_queryset = keywords_queryset.select_related("keyword")
+        return [assigned.keyword for assigned in keywords_queryset]
 
     # Handle a model class.
     try:
         app_label, model = args[0].split(".", 1)
     except ValueError:
-        error = ("The first argument `%s` given for the keywords_for tag "
-                 "must be either a model instance or a model class in the "
-                 "format: app_name.model_name" % args[0])
-        raise TemplateSyntaxError(error)
+        return []
+
     content_type = ContentType.objects.get(app_label=app_label, model=model)
     assigned = AssignedKeyword.objects.filter(content_type=content_type)
     keywords = Keyword.objects.filter(assignments__in=assigned)

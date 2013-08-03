@@ -30,7 +30,6 @@ For example suppose you want to inject a custom ``ImageField`` from a
 third party library into Mezzanine's ``BlogPost`` model, you would
 define the following in your projects’s settings module::
 
-    from django.utils.translation import ugettext as _
     EXTRA_MODEL_FIELDS = (
         # Four-item sequence for one field injected.
         (
@@ -39,7 +38,7 @@ define the following in your projects’s settings module::
             # Dotted path to field class.
             "somelib.fields.ImageField",
             # Positional args for field class.
-            (_("Image"),),
+            ("Image",),
             # Keyword args for field class.
             {"blank": True, "upload_to: "blog"},
         ),
@@ -53,19 +52,18 @@ content types by injecting fields into the ``Page`` class. Continuing on
 from the previous example, suppose you wanted to add a regular Django
 ``IntegerField`` to all content types::
 
-    from django.utils.translation import ugettext as _
     EXTRA_MODEL_FIELDS = (
         (
             "mezzanine.blog.models.BlogPost.image",
             "somelib.fields.ImageField",
-            (_("Image"),),
-            {"blank": True, "upload_to: "blog"},
+            ("Image",),
+            {"blank": True, "upload_to": "blog"},
         ),
         # Example of adding a field to *all* of Mezzanine's content types:
         (
             "mezzanine.pages.models.Page.another_field",
             "IntegerField", # 'django.db.models.' is implied if path is omitted.
-            (_("Another name"),),
+            ("Another name",),
             {"blank": True, "default": 1},
         ),
     )
@@ -110,12 +108,17 @@ taking the more traditional approach of subclassing models, most
 often you will also want to expose new fields to the admin interface.
 This can be achieve by simply unregistering the relevant admin class,
 subclassing it, and re-registering your new admin class for the
-associated model. Continuing on from the first example::
+associated model. Continuing on from the first example, the code below
+takes a copy of the ``fieldsets`` definition for the original
+``BlogPostAdmin``, and injects our custom field's name into the
+desired position.::
 
     # In myapp/admin.py
 
     from copy import deepcopy
+    from django.contrib import admin
     from mezzanine.blog.admin import BlogPostAdmin
+    from mezzanine.blog.models import BlogPost
 
     blog_fieldsets = deepcopy(BlogPostAdmin.fieldsets)
     blog_fieldsets[0][1]["fields"].insert(-2, "image")
@@ -123,19 +126,5 @@ associated model. Continuing on from the first example::
     class MyBlogPostAdmin(BlogPostAdmin):
         fieldsets = blog_fieldsets
 
-    # In myproject/urls.py
-
-    from django.contrib import admin
-    from mezzanine.blog.models import BlogPost
-    from myapp.admin import MyBlogPostAdmin
-
-    admin.autodiscover()
     admin.site.unregister(BlogPost)
     admin.site.register(BlogPost, MyBlogPostAdmin)
-
-Here we take a copy of the ``fieldsets`` definition for the original
-``BlogPostAdmin``, and inject our custom field's name into the
-desired position. The unregister/register step resides in our root
-urlconf to ensure that the original ``BlogPostAdmin`` class has
-actually been registered, without relying on a particular order in
-``INSTALLED_APPS``.

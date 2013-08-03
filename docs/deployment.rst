@@ -3,57 +3,135 @@ Deployment
 ==========
 
 Deployment of a Mezzanine site to production is mostly identical to
-deploying a regular Django site. Some considerations sholuld be made
-around the following aliases that need to be configured with your
-web server for hosting static files.
+deploying a regular Django site. For serving static content, Mezzanine
+makes full use of Django's ``staticfiles`` app. For more information,
+see the Django docs for
+`deployment <https://docs.djangoproject.com/en/dev/howto/deployment/>`_ and
+`staticfiles <https://docs.djangoproject.com/en/dev/howto/static-files/>`_.
 
-  * Your project's media files as per normal Django sites, defined by ``MEDIA_URL`` and ``MEDIA_ROOT``.
-  * Grappelli's media files, defined by ``ADMIN_MEDIA_PREFIX`` and ``GRAPPELLI_MEDIA_PATH``.
-  * Mezzanine's media files, defined by ``CONTENT_MEDIA_URL`` and ``CONTENT_MEDIA_PATH``.
+Fabric
+======
 
-For convenience, the management command ``media_paths`` is provided
-which will print out the actual values of each of these aliases and
-the paths they map to::
+Each Mezzanine project comes bundled with utilities for deploying
+production Mezzanine sites, using `Fabric <http://fabfile.org>`_.
+The provided ``fabfile.py`` contains composable commands that can be
+used to set up all the system-level requirements on a new
+`Debian <http://debian.org>`_ based system, manage each of the
+project-level virtual environments for initial and continuous
+deployments, and much more.
 
-    $ python manage.py media_paths
+Server Stack
+------------
 
-Multi-Site
-==========
+The deployed stack consists of the following components:
 
-Mezzanine currently supports multiple-site functionality through the use of the
-Django `Sites` application, which comes bundled with Django (django.contrib.sites).
-This functionality is actually always "turned on" in Mezzanine: a "single site"
-deployment is a deployment of Mezzanine that references a single `site` record,
-which is how Mezzanine is configured out of the box.  Migrating from a "single site" 
-deployment to a "multiple site" deployment is as simple as adding another site to the 
-Sites application's `site` table, and then creating a new runtime instance of Django 
-that references that record via the SITE_ID setting in settings.py.
+  * `NGINX <http://nginx.org>`_ - public facing web server
+  * `gunicorn <http://gunicorn.org>`_ - internal HTTP application server
+  * `PostgreSQL <http://postgresql.org>`_ - database server
+  * `memcached <http://memcached.org>`_ - in-memory caching server
+  * `supervisord <http://supervisord.org>`_ - process control and monitor
 
-So, a multi-site mezzanine deployment that supports three sites will be configured as so:
-  * A shared database system will exist to store all of the data used by the system.
-  * Three separate runtime instances of Django, each with its own settings.py file, will be created, each responsible for managing a single site
-  * Each settings.py file used by these three instances will point to a different `site` record via the SITE_ID setting.
-  * If the different sites use different themes or templates, then different theme directories or INSTALLED_APPS can be specified for each of these three independant instances.
-  * All three settings.py files will reference the same database.
+.. note::
 
-The content of each individual site will be editable via the admin application running
-within the instance that embodies that site.  In other words, the admin running at
-siteone.com/admin will allow the content of siteone.com to be edited, while the admin
-running at `sitetwo.com/admin` will allow the content of sitetwo.com to be edited, and
-only that content.
+  None of the items listed above are required for deploying Mezzanine,
+  they're simply the components that have been chosen for use in the
+  bundled ``fabfile.py``. Alternatives such as `Apache
+  <http://httpd.apache.org/>`_ and `MySQL <http://www.mysql.com/>`_
+  will work fine, but you'll need to take care of setting these up
+  and deploying yourself. Consult the Django documentation for more
+  information on using different `web
+  <https://docs.djangoproject.com/en/dev/howto/deployment/>`_ and
+  `database <https://docs.djangoproject.com/en/dev/ref/databases/>`_
+  servers.
 
-For more information regarding the Django sites application, see the Django docs:
+Configuration
+-------------
 
-http://docs.djangoproject.com/en/1.3/ref/contrib/sites/
+Configurable variables are implemented in the project's ``settings.py``
+module. Here's an example::
+
+  FABRIC = {
+      "SSH_USER": "", # SSH username
+      "SSH_PASS":  "", # SSH password (consider key-based authentication)
+      "SSH_KEY_PATH":  "", # Local path to SSH key file, for key-based auth
+      "HOSTS": [], # List of hosts to deploy to
+      "VIRTUALENV_HOME":  "", # Absolute remote path for virtualenvs
+      "PROJECT_NAME": "", # Unique identifier for project
+      "REQUIREMENTS_PATH": "requirements/project.txt", # Path to pip requirements, relative to project
+      "GUNICORN_PORT": 8000, # Port gunicorn will listen on
+      "LOCALE": "en_US.utf8", # Should end with ".utf8"
+      "LIVE_HOSTNAME": "www.example.com", # Host for public site.
+      "REPO_URL": "", # Git or Mercurial remote repo URL for the project
+      "DB_PASS": "", # Live database password
+      "ADMIN_PASS": "", # Live admin user password
+  }
+
+Commands
+--------
+
+Here's the list of commands provided in a Mezzanine project's
+``fabfile.py``. Consult the `Fabric documentation <http://fabfile.org>`_
+for more information on working with these:
+
+.. include:: fabfile.rst
+
+Multiple Sites and Multi-Tenancy
+=================================
+
+Mezzanine makes use of Django's ``sites`` app to support multiple
+sites in a single project. This functionality is always "turned on" in
+Mezzanine: a single ``Site`` record always exists, and is referenced
+when retrieving site related data, which most content in Mezzanine falls
+under.
+
+Where Mezzanine diverges from Django is how the ``Site`` record is
+retrieved. Typically a running instance of a Django project is bound
+to a single site defined by the ``SITE_ID`` setting, so while a project
+may contain support for multiple sites, a separate running instance of
+the project is required per site.
+
+Mezzanine uses a pipeline of checks to determine which site to
+reference when accessing content. The most import of these is one where
+the host name of the current request is compared to the domain name
+specified for each ``Site`` record. With this in place, true
+multi-tenancy is achieved, and multiple sites can be hosted within a
+single running instance of the project.
+
+Here's the list of checks in the pipeline, in order:
+
+  * The session variable ``site_id``. This allows a project to include
+    features where a user's session is explicitly associated with a site.
+    Mezzanine uses this in its admin to allow admin users to switch
+    between sites to manage, while accessing the admin on a single domain.
+  * The domain matching the host of the current request, as described
+    above.
+  * The environment variable ``MEZZANINE_SITE_ID``. This allows
+    developers to specify the site for contexts outside of a HTTP
+    request, such as management commands. Mezzanine includes a custom
+    ``manage.py`` which will check for (and remove) a ``--site=ID``
+    argument.
+  * Finally, Mezzanine will fall back to the ``SITE_ID`` setting if none
+    of the above checks can occur.
 
 Twitter Feeds
 =============
 
 If Twitter feeds are implemented in your templates, a cron job is
-required that will run the following management command::
+required that will run the following management command. For example,
+if we want the tweets to be updated every 10 minutes::
 
-    $ python manage.py poll_twitter
+    */10 * * * * python path/to/your/site/manage.py poll_twitter
 
 This ensures that the data is always available in the site's database
 when accessed, and allows you to control how often the Twitter API is
-queried.
+queried. Note that the Fabric script described earlier includes
+features for deploying templates for cron jobs, which includes the
+job for polling Twitter by default.
+
+As of June 2013, Twitter also requires that all API access is
+authenticated. For this you'll need to configure OAuth credentials for
+your site to access the Twitter API. These settings are configurable
+as Mezzanine settings. See the :doc:`configuration` section for more
+information on these, as well as the `Twitter developer site
+<https://dev.twitter.com/>`_ for info on configuring your OAuth
+credentials.

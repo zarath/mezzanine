@@ -2,17 +2,29 @@
 import os
 import sys
 
+from django.conf import global_settings as defaults
 from django.template.loader import add_to_builtins
-from django import VERSION
 
-from mezzanine.utils.importing import path_for_import
+
+class SitesAllowedHosts(object):
+    """
+    This is a fallback for Django 1.5's ALLOWED_HOSTS setting
+    which is required when DEBUG is False. It looks up the
+    ``Site`` model and uses any domains added to it, the
+    first time the setting is accessed.
+    """
+    def __iter__(self):
+        if getattr(self, "_hosts", None) is None:
+            from django.contrib.sites.models import Site
+            self._hosts = [s.domain.split(":")[0] for s in Site.objects.all()]
+        return iter(self._hosts)
 
 
 def set_dynamic_settings(s):
     """
-    Called at the end of the project's settings module and is passed
+    Called at the end of the project's settings module, and is passed
     its globals dict for updating with some final tweaks for settings
-    that generally aren't specified but can be given some better
+    that generally aren't specified, but can be given some better
     defaults based on other settings that have been specified. Broken
     out into its own function so that the code need not be replicated
     in the settings modules of other project-based apps that leverage
@@ -21,37 +33,66 @@ def set_dynamic_settings(s):
 
     # Moves an existing list setting value to a different position.
     move = lambda n, k, i: s[n].insert(i, s[n].pop(s[n].index(k)))
-    # Add a value to a list setting if not in the list.
+    # Add a value to the end of a list setting if not in the list.
     append = lambda n, k: s[n].append(k) if k not in s[n] else None
+    # Add a value to the start of a list setting if not in the list.
+    prepend = lambda n, k: s[n].insert(0, k) if k not in s[n] else None
+    # Remove a value from a list setting if in the list.
+    remove = lambda n, k: s[n].remove(k) if k in s[n] else None
 
     s["TEMPLATE_DEBUG"] = s.get("TEMPLATE_DEBUG", s.get("DEBUG", False))
     add_to_builtins("mezzanine.template.loader_tags")
+
+    if not s.get("ALLOWED_HOSTS", []):
+        from warnings import warn
+        warn("You haven't defined the ALLOWED_HOSTS settings, which "
+             "Django 1.5 requires. Will fall back to the domains "
+             "configured as sites.")
+        s["ALLOWED_HOSTS"] = SitesAllowedHosts()
+
     # Define some settings based on management command being run.
     management_command = sys.argv[1] if len(sys.argv) > 1 else ""
     # Some kind of testing is running via test or testserver.
-    s["TESTING"] = management_command.startswith("test")
-    # Some kind of development server is running via runserver or
-    # runserver_plus
-    s["DEV_SERVER"] = management_command.startswith("runserver")
-    # Change INSTALLED_APPS and MIDDLEWARE_CLASSES to lists for
-    # easier manipulation.
-    s["INSTALLED_APPS"] = list(s["INSTALLED_APPS"])
-    s["MIDDLEWARE_CLASSES"] = list(s["MIDDLEWARE_CLASSES"])
+    s["TESTING"] = management_command in ("test", "testserver")
+    # Some kind of development server is running via runserver,
+    # runserver_plus or harvest (lettuce)
+    s["DEV_SERVER"] = management_command.startswith(("runserver", "harvest"))
 
-    # Set up cookie messaging if available.
-    try:
-        from django.contrib.messages import debug
-    except ImportError:
-        pass
+    # Change tuple settings to lists for easier manipulation.
+    s.setdefault("AUTHENTICATION_BACKENDS", defaults.AUTHENTICATION_BACKENDS)
+    s.setdefault("STATICFILES_FINDERS", defaults.STATICFILES_FINDERS)
+    tuple_list_settings = ("AUTHENTICATION_BACKENDS", "INSTALLED_APPS",
+                           "MIDDLEWARE_CLASSES", "STATICFILES_FINDERS")
+    for setting in tuple_list_settings:
+        s[setting] = list(s[setting])
+
+    if s["DEV_SERVER"]:
+        s["STATICFILES_DIRS"] = list(s.get("STATICFILES_DIRS", []))
+        s["STATICFILES_DIRS"].append(s.pop("STATIC_ROOT"))
+
+    # Set up cookie messaging if none defined.
+    storage = "django.contrib.messages.storage.cookie.CookieStorage"
+    s.setdefault("MESSAGE_STORAGE", storage)
+
+    if s["TESTING"]:
+        # Enable accounts when testing so the URLs exist.
+        append("INSTALLED_APPS", "mezzanine.accounts")
+
+        # Following bits are work-arounds for some assumptions that
+        # Django 1.5's tests make.
+
+        # contrib.auth tests fail without its own auth backend installed.
+        append("AUTHENTICATION_BACKENDS",
+               "django.contrib.auth.backends.ModelBackend")
+
+        # Tests in contrib.redirects simply don't work with a
+        # catch-all urlpattern such as Mezzanine's pages app.
+        remove("INSTALLED_APPS", "django.contrib.redirects")
+        remove("MIDDLEWARE_CLASSES",
+            "django.contrib.redirects.middleware.RedirectFallbackMiddleware")
+
     else:
-        msg_mw = "django.contrib.messages.middleware.MessageMiddleware"
-        append("MIDDLEWARE_CLASSES", msg_mw)
-        if not s.get("MESSAGE_STORAGE"):
-            storage = "django.contrib.messages.storage.cookie.CookieStorage"
-            s["MESSAGE_STORAGE"] = storage
-
-    # Setup for optional apps.
-    if not s["TESTING"]:
+        # Setup for optional apps.
         optional = list(s.get("OPTIONAL_APPS", []))
         if s.get("USE_SOUTH"):
             optional.append("south")
@@ -67,14 +108,28 @@ def set_dynamic_settings(s):
                     s["INSTALLED_APPS"].append(app)
     if "debug_toolbar" in s["INSTALLED_APPS"]:
         debug_mw = "debug_toolbar.middleware.DebugToolbarMiddleware"
-        append("MIDDLEWARE_CLASSES", debug_mw)
+        prepend("MIDDLEWARE_CLASSES", debug_mw)
+    # If compressor installed, ensure it's configured and make
+    # Mezzanine's settings available to its offline context,
+    # since jQuery is configured via a setting.
+    if "compressor" in s["INSTALLED_APPS"]:
+        append("STATICFILES_FINDERS", "compressor.finders.CompressorFinder")
+        s.setdefault("COMPRESS_OFFLINE_CONTEXT", {
+            "MEDIA_URL": s.get("MEDIA_URL", ""),
+            "STATIC_URL": s.get("STATIC_URL", ""),
+        })
 
-    # Set up filebrowser paths.
-    if s.get("PACKAGE_NAME_FILEBROWSER") in s["INSTALLED_APPS"]:
-        s["FILEBROWSER_URL_FILEBROWSER_MEDIA"] = "/filebrowser/media/"
-        fb_path = path_for_import(s["PACKAGE_NAME_FILEBROWSER"])
-        fb_media_path = os.path.join(fb_path, "media", "filebrowser")
-        s["FILEBROWSER_PATH_FILEBROWSER_MEDIA"] = fb_media_path
+        def mezzanine_settings():
+            from mezzanine.conf import settings
+            return settings
+        s["COMPRESS_OFFLINE_CONTEXT"]["settings"] = mezzanine_settings
+
+    # Ensure the Mezzanine auth backend is enabled if
+    # mezzanine.accounts is being used.
+    if "mezzanine.accounts" in s["INSTALLED_APPS"]:
+        auth_backend = "mezzanine.core.auth_backends.MezzanineBackend"
+        s.setdefault("AUTHENTICATION_BACKENDS", [])
+        prepend("AUTHENTICATION_BACKENDS", auth_backend)
 
     # Ensure Grappelli is after Mezzanine in app order so that
     # admin templates are loaded in the correct order.
@@ -87,28 +142,6 @@ def set_dynamic_settings(s):
         s["GRAPPELLI_INSTALLED"] = True
         s.setdefault("GRAPPELLI_ADMIN_HEADLINE", "Mezzanine")
         s.setdefault("GRAPPELLI_ADMIN_TITLE", "Mezzanine")
-        grappelli_path = path_for_import(grappelli_name)
-        s["GRAPPELLI_MEDIA_PATH"] = os.path.join(grappelli_path, "media")
-        # Adopted from django.core.management.commands.runserver
-        # Easiest way so far to actually get all the media for
-        # Grappelli working with the dev server is to hard-code the
-        # host:port to ADMIN_MEDIA_PREFIX, so here we check for a
-        # custom host:port before doing this.
-        if s["DEV_SERVER"]:
-            addrport = ""
-            if len(sys.argv) > 2:
-                addrport = sys.argv[2]
-            if not addrport:
-                addr, port = "", "8000"
-            else:
-                try:
-                    addr, port = addrport.split(":")
-                except ValueError:
-                    addr, port = "", addrport
-            if not addr:
-                addr = "127.0.0.1"
-            parts = (addr, port, s["ADMIN_MEDIA_PREFIX"])
-            s["ADMIN_MEDIA_PREFIX"] = "http://%s:%s%s" % parts
 
     # Ensure admin is last in the app order so that admin templates
     # are loaded in the correct order.
@@ -118,7 +151,7 @@ def set_dynamic_settings(s):
     if "mezzanine.blog" in s["INSTALLED_APPS"]:
         append("INSTALLED_APPS", "mezzanine.generic")
     if "mezzanine.generic" in s["INSTALLED_APPS"]:
-        s["COMMENTS_APP"] = "mezzanine.generic"
+        s.setdefault("COMMENTS_APP", "mezzanine.generic")
         append("INSTALLED_APPS", "django.contrib.comments")
 
     # Ensure mezzanine.boot is first.
@@ -127,24 +160,18 @@ def set_dynamic_settings(s):
     except ValueError:
         pass
 
-    # Caching.
+    # Remove caching middleware if no backend defined.
     if not (s.get("CACHE_BACKEND") or s.get("CACHES")):
         s["MIDDLEWARE_CLASSES"] = [mw for mw in s["MIDDLEWARE_CLASSES"] if not
-                                   mw.endswith("UpdateCacheMiddleware") or
-                                   mw.endswith("FetchFromCacheMiddleware")]
+                                   (mw.endswith("UpdateCacheMiddleware") or
+                                    mw.endswith("FetchFromCacheMiddleware"))]
+
+    # Revert tuple settings back to tuples.
+    for setting in tuple_list_settings:
+        s[setting] = tuple(s[setting])
 
     # Some settings tweaks for different DB engines.
-    backend_path = "django.db.backends."
-    backend_shortnames = (
-        "postgresql_psycopg2",
-        "postgresql",
-        "mysql",
-        "sqlite3",
-        "oracle",
-    )
     for (key, db) in s["DATABASES"].items():
-        if db["ENGINE"] in backend_shortnames:
-            s["DATABASES"][key]["ENGINE"] = backend_path + db["ENGINE"]
         shortname = db["ENGINE"].split(".")[-1]
         if shortname == "sqlite3" and os.sep not in db["NAME"]:
             # If the Sqlite DB name doesn't contain a path, assume
@@ -154,60 +181,3 @@ def set_dynamic_settings(s):
         elif shortname == "mysql":
             # Required MySQL collation for tests.
             s["DATABASES"][key]["TEST_COLLATION"] = "utf8_general_ci"
-        elif shortname.startswith("postgresql") and not s.get("TIME_ZONE", 1):
-            # Specifying a blank time zone to fall back to the
-            # system's time zone will break table creation in Postgres
-            # so remove it.
-            del s["TIME_ZONE"]
-
-    # If a theme is defined then add its template path to the
-    # template dirs.
-    theme = s.get("THEME")
-    if theme:
-        theme_templates = os.path.join(path_for_import(theme), "templates")
-        s["TEMPLATE_DIRS"] = (theme_templates,) + tuple(s["TEMPLATE_DIRS"])
-
-    # Remaining code is for Django 1.1 support.
-    if VERSION >= (1, 2, 0):
-        return
-
-    # Add the dummy csrf_token template tag to builtins and remove
-    # Django's CsrfViewMiddleware.
-    add_to_builtins("mezzanine.core.templatetags.dummy_csrf")
-    csrf_mw = "django.middleware.csrf.CsrfViewMiddleware"
-    try:
-        s["MIDDLEWARE_CLASSES"].remove(csrf_mw)
-    except ValueError:
-        pass
-
-    # Use the single DB settings.
-    old_db_settings_mapping = {
-        "ENGINE": "DATABASE_ENGINE",
-        "HOST": "DATABASE_HOST",
-        "NAME": "DATABASE_NAME",
-        "OPTIONS": "DATABASE_OPTIONS",
-        "PASSWORD": "DATABASE_PASSWORD",
-        "PORT": "DATABASE_PORT",
-        "USER": "DATABASE_USER",
-        "TEST_CHARSET": "TEST_DATABASE_CHARSET",
-        "TEST_COLLATION": "TEST_DATABASE_COLLATION",
-        "TEST_NAME": "TEST_DATABASE_NAME",
-    }
-    for (new_name, old_name) in old_db_settings_mapping.items():
-        value = s["DATABASES"]["default"].get(new_name)
-        if value is not None:
-            if new_name == "ENGINE" and value.startswith(backend_path):
-                value = value.replace(backend_path, "", 1)
-            s[old_name] = value
-
-    # Revert to some old names.
-    processors = list(s["TEMPLATE_CONTEXT_PROCESSORS"])
-    for (i, processor) in enumerate(processors):
-        if processor == "django.contrib.auth.context_processors.auth":
-            processors[i] = "django.core.context_processors.auth"
-    s["TEMPLATE_CONTEXT_PROCESSORS"] = processors
-    loaders = list(s["TEMPLATE_LOADERS"])
-    for (i, loader) in enumerate(loaders):
-        if loader.startswith("django.") and loader.endswith(".Loader"):
-            loaders[i] = loader.replace(".Loader", ".load_template_source", 1)
-    s["TEMPLATE_LOADERS"] = loaders
