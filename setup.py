@@ -34,7 +34,7 @@ install_requires = [
     "bleach",
     "pytz >= 2013b",
     "requests==1.2.3",
-    "requests-oauthlib==0.3.2",
+    "requests-oauthlib > 0.3.2, < 0.4",
 ]
 
 try:
@@ -57,7 +57,7 @@ try:
         author_email="stephen.mc@gmail.com",
         description="An open source content management platform built using "
                     "the Django framework.",
-        long_description=open("README.rst").read(),
+        long_description=open("README.rst", 'rb').read().decode('utf-8'),
         license="BSD",
         url="http://mezzanine.jupo.org/",
         zip_safe=False,
@@ -71,7 +71,7 @@ try:
         test_suite="runtests.runtests",
         tests_require=["pyflakes==0.6.1", "pep8==1.4.1"],
         classifiers=[
-            "Development Status :: 4 - Beta",
+            "Development Status :: 5 - Production/Stable",
             "Environment :: Web Environment",
             "Framework :: Django",
             "Intended Audience :: Developers",

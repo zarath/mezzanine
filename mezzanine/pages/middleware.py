@@ -1,4 +1,5 @@
 from django.contrib.auth import REDIRECT_FIELD_NAME
+from django.core.exceptions import MiddlewareNotUsed
 from django.http import HttpResponse, Http404
 from django.shortcuts import redirect
 from django.utils.http import urlquote
@@ -30,6 +31,10 @@ class PageMiddleware(object):
     In either case, we add the page to the response's template
     context, so that the current page is always available.
     """
+
+    def __init__(self):
+        if "mezzanine.pages" not in settings.INSTALLED_APPS:
+            raise MiddlewareNotUsed
 
     def process_view(self, request, view_func, view_args, view_kwargs):
 
@@ -70,14 +75,16 @@ class PageMiddleware(object):
         try:
             response = view_func(request, *view_args, **view_kwargs)
         except Http404:
-            if page.slug == slug and view_func != page_view:
+            if (page.slug == slug and view_func != page_view and
+                    page.content_model != 'link'):
                 # Matched a non-page urlpattern, but got a 404
                 # for a URL that matches a valid page slug, so
                 # use the page view.
-                view_kwargs.setdefault("extra_context", {})
-                view_kwargs["extra_context"]["page"] = page
+                view_kwargs = {
+                    "extra_context": {"page": page}
+                }
                 view_func = page_view
-                response = view_func(request, *view_args, **view_kwargs)
+                response = view_func(request, slug, **view_kwargs)
             else:
                 raise
 
