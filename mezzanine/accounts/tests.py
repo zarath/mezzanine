@@ -1,12 +1,15 @@
+from __future__ import unicode_literals
 
+from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.core.urlresolvers import reverse
+from django.forms.fields import DateField, DateTimeField
 from django.utils.http import int_to_base36
 
-from mezzanine.accounts import get_profile_model, get_profile_user_fieldname
+from mezzanine.accounts import ProfileNotConfigured
+from mezzanine.accounts.forms import ProfileForm
 from mezzanine.conf import settings
-from mezzanine.utils.models import get_user_model
 from mezzanine.utils.tests import TestCase
 
 
@@ -29,16 +32,20 @@ class AccountsTests(TestCase):
                 value = test_value
             data[field] = value
         # Profile fields
-        Profile = get_profile_model()
-        if Profile is not None:
-            user_fieldname = get_profile_user_fieldname()
-            for field in Profile._meta.fields:
-                if field.name not in (user_fieldname, "id"):
-                    if field.choices:
-                        value = field.choices[0][0]
+        try:
+            profile_form = ProfileForm()
+            ProfileFieldsForm = profile_form.get_profile_fields_form()
+            for name, field in ProfileFieldsForm().fields.items():
+                if name != "id":
+                    if hasattr(field, "choices"):
+                        value = list(field.choices)[0][0]
+                    elif isinstance(field, (DateField, DateTimeField)):
+                        value = "9001-04-20"
                     else:
                         value = test_value
-                    data[field.name] = value
+                    data[name] = value
+        except ProfileNotConfigured:
+            pass
         return data
 
     def test_account(self):
@@ -46,7 +53,6 @@ class AccountsTests(TestCase):
         Test account creation.
         """
         # Verification not required - test an active user is created.
-
         data = self.account_data("test1")
         settings.ACCOUNTS_VERIFICATION_REQUIRED = False
         response = self.client.post(reverse("signup"), data, follow=True)

@@ -2,6 +2,8 @@
 Utils called from project_root/docs/conf.py when Sphinx
 documentation is generated.
 """
+from __future__ import division, print_function, unicode_literals
+from future.builtins import map, open, str
 
 from datetime import datetime
 import os.path
@@ -12,9 +14,8 @@ from warnings import warn
 
 from django.template.defaultfilters import urlize
 from django.utils.datastructures import SortedDict
-from django.utils.encoding import force_unicode
+from django.utils.encoding import force_text
 from django.utils.functional import Promise
-from PIL import Image
 
 from mezzanine import __version__
 from mezzanine.conf import registry
@@ -23,14 +24,14 @@ from mezzanine.utils.importing import import_dotted_path, path_for_import
 
 def deep_force_unicode(value):
     """
-    Recursively call force_unicode on value.
+    Recursively call force_text on value.
     """
     if isinstance(value, (list, tuple, set)):
         value = type(value)(map(deep_force_unicode, value))
     elif isinstance(value, dict):
         value = type(value)(map(deep_force_unicode, value.items()))
     elif isinstance(value, Promise):
-        value = force_unicode(value)
+        value = force_text(value)
     return value
 
 
@@ -49,24 +50,27 @@ def build_settings_docs(docs_path, prefix=None):
         setting = registry[name]
         settings_name = "``%s``" % name
         setting_default = setting["default"]
-        if isinstance(setting_default, basestring):
+        if isinstance(setting_default, str):
             if gethostname() in setting_default or (
                 setting_default.startswith("/") and
-                os.path.exists(setting_default)):
+                    os.path.exists(setting_default)):
                 setting_default = dynamic
         if setting_default != dynamic:
             setting_default = repr(deep_force_unicode(setting_default))
         lines.extend(["", settings_name, "-" * len(settings_name)])
-        lines.extend(["", urlize(setting["description"]
-            ).replace("<a href=\"", "`"
-            ).replace("\" rel=\"nofollow\">", " <").replace("</a>", ">`_")])
+        lines.extend(["",
+            urlize(setting["description"] or "").replace(
+                "<a href=\"", "`").replace(
+                "\" rel=\"nofollow\">", " <").replace(
+                "</a>", ">`_")])
         if setting["choices"]:
-            choices = ", ".join(["%s: ``%s``" % (unicode(v), force_unicode(k))
+            choices = ", ".join(["%s: ``%s``" % (str(v), force_text(k))
                                  for k, v in setting["choices"]])
             lines.extend(["", "Choices: %s" % choices, ""])
         lines.extend(["", "Default: ``%s``" % setting_default])
     with open(os.path.join(docs_path, "settings.rst"), "w") as f:
-        f.write("\n".join(lines))
+        f.write("\n".join(lines).replace("u'", "'").replace("yo'", "you'"
+            ).replace("&#39;", "'"))
 
 
 def build_deploy_docs(docs_path):
@@ -134,7 +138,8 @@ def build_changelog(docs_path, package_name="mezzanine"):
         files = cs.files()
         new_version = False
         # Commit message cleanup hacks.
-        description = cs.description().rstrip(".").replace("\n", ". ")
+        description = cs.description().decode("utf-8")
+        description = description.rstrip(".").replace("\n", ". ")
         while "  " in description:
             description = description.replace("  ", " ")
         description = description.replace(". . ", ". ").replace("...", ",")
@@ -144,8 +149,8 @@ def build_changelog(docs_path, package_name="mezzanine"):
         words = description.split()
         # Format var names in commit.
         for i, word in enumerate(words):
-            if (set("._") & set(word[:-1]) and set(letters) & set(word)
-                and "`" not in word and not word[0].isdigit()):
+            if (set("._") & set(word[:-1]) and set(letters) & set(word) and
+                    "`" not in word and not word[0].isdigit()):
                 last = ""
                 if word[-1] in ",.":
                     last, word = word[-1], word[:-1]
@@ -154,7 +159,7 @@ def build_changelog(docs_path, package_name="mezzanine"):
         if version_file in files:
             for line in cs[version_file].data().split("\n"):
                 if line.startswith(version_var):
-                    exec line
+                    exec(line)
                     if locals()[version_var] == "0.1.0":
                         locals()[version_var] = "1.0.0"
                         break
@@ -175,19 +180,22 @@ def build_changelog(docs_path, package_name="mezzanine"):
                 except KeyError:
                     version_tag = None
             if version_tag and version_tag not in cs.tags():
-                print "Tagging version %s" % version_tag
-                tag(ui, repo, version_tag, rev=cs.hex())
+                try:
+                    tag(ui, repo, version_tag, rev=cs.hex())
+                    print("Tagging version %s" % version_tag)
+                except:
+                    pass
 
         # Ignore changesets that are merges, bumped the version, closed
         # a branch, regenerated the changelog itself, contain an ignore
-        # word, or are one word long.
+        # word, or contain too few words to be meaningful.
         merge = len(cs.parents()) > 1
         branch_closed = len(files) == 0
         changelog_update = changelog_filename in files
         ignored = [w for w in ignore if w.lower() in description.lower()]
-        one_word = len(description.split()) == 1
+        too_few_words = len(description.split()) <= 3
         if (merge or new_version or branch_closed or changelog_update or
-            ignored or one_word):
+                ignored or too_few_words):
             continue
         # Ensure we have a current version and if so, add this changeset's
         # description to it.
@@ -197,7 +205,7 @@ def build_changelog(docs_path, package_name="mezzanine"):
         except KeyError:
             if not hotfix:
                 continue
-        user = cs.user().split("<")[0].strip()
+        user = cs.user().decode("utf-8").split("<")[0].strip()
         entry = "%s - %s" % (description, user)
         if hotfix or entry not in versions[version]["changes"]:
             if hotfix:
@@ -232,7 +240,8 @@ def build_modelgraph(docs_path, package_name="mezzanine"):
     to_path = os.path.join(docs_path, "img", "graph.png")
     build_path = os.path.join(docs_path, "build", "_images")
     resized_path = os.path.join(os.path.dirname(to_path), "graph-small.png")
-    settings = import_dotted_path(package_name + ".project_template.settings")
+    settings = import_dotted_path(package_name +
+                                  ".project_template.project_name.settings")
     apps = [a.rsplit(".")[1] for a in settings.INSTALLED_APPS
             if a.startswith("mezzanine.") or a.startswith(package_name + ".")]
     try:
@@ -244,28 +253,34 @@ def build_modelgraph(docs_path, package_name="mezzanine"):
                    "layout": "dot"}
         try:
             graph_models.Command().execute(*apps, **options)
-        except Exception, e:
+        except Exception as e:
             warn("Couldn't build model_graph, graph_models failed on: %s" % e)
         else:
             try:
                 move("graph.png", to_path)
-            except OSError, e:
+            except OSError as e:
                 warn("Couldn't build model_graph, move failed on: %s" % e)
     # docs/img/graph.png should exist in the repo - move it to the build path.
     try:
         if not os.path.exists(build_path):
             os.makedirs(build_path)
         copyfile(to_path, os.path.join(build_path, "graph.png"))
-    except OSError, e:
+    except OSError as e:
         warn("Couldn't build model_graph, copy to build failed on: %s" % e)
     try:
+        from PIL import Image
         image = Image.open(to_path)
         image.width = 800
-        image.height = image.size[1] * 800 / image.size[0]
+        image.height = image.size[1] * 800 // image.size[0]
         image.save(resized_path, "PNG", quality=100)
-    except Exception, e:
+    except Exception as e:
         warn("Couldn't build model_graph, resize failed on: %s" % e)
         return
+    # Copy the dashboard screenshot to the build dir too. This doesn't
+    # really belong anywhere, so we do it here since this is the only
+    # spot we deal with doc images.
+    d = "dashboard.png"
+    copyfile(os.path.join(docs_path, "img", d), os.path.join(build_path, d))
 
 
 def build_requirements(docs_path, package_name="mezzanine"):
@@ -275,8 +290,7 @@ def build_requirements(docs_path, package_name="mezzanine"):
     mezz_string = "Mezzanine=="
     project_path = os.path.join(docs_path, "..")
     requirements_file = os.path.join(project_path, package_name,
-                                     "project_template", "requirements",
-                                     "project.txt")
+                                     "project_template", "requirements.txt")
     with open(requirements_file, "r") as f:
         requirements = f.readlines()
     with open(requirements_file, "w") as f:

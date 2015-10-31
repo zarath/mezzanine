@@ -1,7 +1,9 @@
+from __future__ import unicode_literals
 
 import os
+from importlib import import_module
 
-from django.utils.importlib import import_module
+from django.apps import apps
 
 
 def path_for_import(name):
@@ -20,5 +22,10 @@ def import_dotted_path(path):
         module_path, member_name = path.rsplit(".", 1)
         module = import_module(module_path)
         return getattr(module, member_name)
-    except (ValueError, ImportError, AttributeError), e:
+    except (ValueError, ImportError, AttributeError) as e:
         raise ImportError("Could not import the name: %s: %s" % (path, e))
+
+
+def get_app_name_list():
+    for app in apps.get_app_configs():
+        yield app.name

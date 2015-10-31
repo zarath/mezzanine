@@ -9,6 +9,7 @@ making it editable, as it may be inappropriate - for example settings
 that are only read during startup shouldn't be editable, since changing
 them would require an application reload.
 """
+from __future__ import unicode_literals
 
 from django.utils.translation import ugettext_lazy as _
 
@@ -52,6 +53,15 @@ register_setting(
         "field type. The ID is simply a numeric constant for the field, "
         "but cannot be a value already used, so choose a high number such "
         "as 100 or greater to avoid conflicts."),
+    editable=False,
+    default=(),
+)
+
+register_setting(
+    name="FORMS_EXTRA_WIDGETS",
+    description=_("Extra field widgets for the forms app. Should contain a "
+        "sequence of two-item sequences, each containing an existing ID "
+        "for a form field, and a dotted import path for the widget class."),
     editable=False,
     default=(),
 )

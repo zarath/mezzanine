@@ -1,3 +1,4 @@
+from __future__ import unicode_literals
 
 from functools import wraps
 
@@ -38,7 +39,7 @@ class Library(template.Library):
                     for arg in parts[1:-2]:
                         if "=" in arg:
                             name, val = arg.split("=", 1)
-                            if name in tag_func.func_code.co_varnames:
+                            if name in tag_func.__code__.co_varnames:
                                 kwargs[name] = resolve(val)
                                 continue
                         args.append(resolve(arg))
@@ -82,7 +83,7 @@ class Library(template.Library):
 
                 def render(self, context):
                     args = (self.nodelist.render(context), context, token)
-                    return tag_func(*args[:tag_func.func_code.co_argcount])
+                    return tag_func(*args[:tag_func.__code__.co_argcount])
 
             return ToEndTagNode()
 
@@ -109,7 +110,8 @@ class Library(template.Library):
                             else:
                                 ts = templates_for_device(request, name)
                                 t = select_template(ts)
-                            self.nodelist = t.nodelist
+
+                            self.template = t
                         parts = [template.Variable(part).resolve(context)
                                  for part in token.split_contents()[1:]]
                         if takes_context:
@@ -117,7 +119,7 @@ class Library(template.Library):
                         result = tag_func(*parts)
                         autoescape = context.autoescape
                         context = context_class(result, autoescape=autoescape)
-                        return self.nodelist.render(context)
+                        return self.template.render(context)
 
                 return InclusionTagNode()
             return self.tag(tag_wrapper)

@@ -1,36 +1,40 @@
 
-var selectFieldDirty = function(select, unselectedIndex) {
-    return $.grep(select.options, function(option) {
-        return option.selected && !option.defaultSelected;
-    }).length > 0 && select.selectedIndex != unselectedIndex;
-};
+jQuery(function($) {
 
-var anyFieldsDirty = function(fields) {
-    // Return true if any of the fields have been given a value
-    // that isn't the default.
-    return $.grep(fields, function(field) {
-        switch (field.type) {
-            case 'select-one':
-                return selectFieldDirty(field, 0);
-            case 'select-multiple':
-                return selectFieldDirty(field, -1);
-            case 'text':
-            case 'textarea':
-            case 'file':
-                return field.value && field.value != field.defaultValue;
-            case 'checkbox':
-                return field.checked != field.defaultChecked;
-            case 'hidden':
-                return false;
-            default:
-                alert('Unhandled field in dynamic_inline.js:' +
-                      field.name + ':' + field.type);
-                return false;
-        }
-    }).length > 0;
-};
+    var selectFieldDirty = function(select, unselectedIndex) {
+        return $.grep(select.options, function(option) {
+            return option.selected && !option.defaultSelected;
+        }).length > 0 && select.selectedIndex != unselectedIndex;
+    };
 
-$(function() {
+    var anyFieldsDirty = function(fields) {
+        // Return true if any of the fields have been given a value
+        // that isn't the default.
+        return $.grep(fields, function(field) {
+            switch (field.type) {
+                case 'select-one':
+                    return selectFieldDirty(field, 0);
+                case 'select-multiple':
+                    return selectFieldDirty(field, -1);
+                case 'text':
+                case 'textarea':
+                case 'file':
+                case 'email':
+                case 'number':
+                case 'password':
+                case 'url':
+                    return field.value && field.value != field.defaultValue;
+                case 'checkbox':
+                    return field.checked != field.defaultChecked;
+                case 'hidden':
+                    return false;
+                default:
+                    alert('Unhandled field in dynamic_inline.js:' +
+                          field.name + ':' + field.type);
+                    return false;
+            }
+        }).length > 0;
+    };
 
     var itemSelector = window.__grappelli_installed ? '.items' : 'tbody';
     var parentSelector = '.dynamic-inline ' + itemSelector;
@@ -43,7 +47,7 @@ $(function() {
     $('.ordering').css({cursor: 'move'});
 
     // Set the value of the _order fields on submit.
-    $('input[type=submit]').click(function() {
+    $('.dynamic-inline').closest("form").submit(function() {
         if (typeof tinyMCE != 'undefined') {
             tinyMCE.triggerSave();
         }
@@ -64,9 +68,17 @@ $(function() {
         });
     });
 
+    // Remove extraneous ``template`` forms from inline formsets since
+    // Mezzanine has its own method of dynamic inlines.
+    $(parentSelector + ' > *:has(*[name*=__prefix__])').remove();
+
+    // Remove the "add another" row used in Django's default admin templates
+    $(parentSelector + ' > *.add-row').remove();
+
     // Hide the exta inlines.
-    $(parentSelector + ' > *:not(.has_original)').hide();
-    // Re-show inlines with errors, poetentially hidden by previous line.
+    $(parentSelector + ' > *:not(.has_original):not(.legend)').hide();
+
+    // Re-show inlines with errors, potentially hidden by previous line.
     var errors = $(parentSelector + ' ul[class=errorlist]').parent().parent();
     if (window.__grappelli_installed) {
         errors = errors.parent();
@@ -82,11 +94,8 @@ $(function() {
         };
         var rows = getRows();
         $(rows[0]).show();
-        // Grappelli's inline header for tabular inlines is
-        // actually part of the selector, so for it we run this twice.
-        if (window.__grappelli_installed && $(rows[0]).hasClass('legend')) {
-            $(rows[1]).show();
-        }
+
+        // If no more hidden inlines remain, hide the "add another" button
         if (getRows().length === 0) {
             $(this).hide();
         }

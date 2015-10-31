@@ -1,3 +1,4 @@
+from __future__ import unicode_literals
 
 from hashlib import md5
 from time import time
@@ -59,7 +60,7 @@ def cache_installed():
     Returns ``True`` if a cache backend is configured, and the
     cache middlware classes are present.
     """
-    has_key = hasattr(settings, "NEVERCACHE_KEY")
+    has_key = bool(getattr(settings, "NEVERCACHE_KEY", ""))
     return has_key and settings.CACHES and not settings.TESTING and set((
         "mezzanine.core.middleware.UpdateCacheMiddleware",
         "mezzanine.core.middleware.FetchFromCacheMiddleware",

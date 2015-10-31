@@ -1,12 +1,13 @@
+from __future__ import unicode_literals
 from datetime import datetime
 
+from django.contrib.auth import get_user_model
 from django.db.models import Count, Q
 
 from mezzanine.blog.forms import BlogPostForm
 from mezzanine.blog.models import BlogPost, BlogCategory
 from mezzanine.generic.models import Keyword
 from mezzanine import template
-from mezzanine.utils.models import get_user_model
 
 User = get_user_model()
 
@@ -69,7 +70,7 @@ def blog_recent_posts(limit=5, tag=None, username=None, category=None):
     if tag is not None:
         try:
             tag = Keyword.objects.get(title_or_slug(tag))
-            blog_posts = blog_posts.filter(keywords__in=tag.assignments.all())
+            blog_posts = blog_posts.filter(keywords__keyword=tag)
         except Keyword.DoesNotExist:
             return []
     if category is not None:

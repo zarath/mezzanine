@@ -1,3 +1,5 @@
+from __future__ import unicode_literals
+from future.builtins import int, str
 
 from collections import defaultdict
 
@@ -17,7 +19,7 @@ def tweets_for(query_type, args, per_user=None):
     ``per_user`` arg limits the number of tweets per user, for
     example to allow a fair spread of tweets per user for a list.
     """
-    lookup = {"query_type": query_type, "value": args[0].strip("\"'")}
+    lookup = {"query_type": query_type, "value": args[0]}
     try:
         tweets = Tweet.objects.get_for(**lookup)
     except TwitterQueryException:
@@ -63,7 +65,6 @@ def tweets_default(*args):
     """
     Tweets for the default settings.
     """
-    settings.use_editable()
     query_type = settings.TWITTER_DEFAULT_QUERY_TYPE
     args = (settings.TWITTER_DEFAULT_QUERY,
             settings.TWITTER_DEFAULT_NUM_TWEETS)

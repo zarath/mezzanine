@@ -1,6 +1,8 @@
+from __future__ import unicode_literals
+from future.builtins import open, bytes
 
 from copy import deepcopy
-from cStringIO import StringIO
+from io import BytesIO, StringIO
 from csv import writer
 from datetime import datetime
 from mimetypes import guess_type
@@ -20,6 +22,7 @@ from mezzanine.core.admin import TabularDynamicInlineAdmin
 from mezzanine.forms.forms import EntriesForm
 from mezzanine.forms.models import Form, Field, FormEntry, FieldEntry
 from mezzanine.pages.admin import PageAdmin
+from mezzanine.utils.static import static_lazy as static
 from mezzanine.utils.urls import admin_url, slugify
 
 
@@ -32,6 +35,10 @@ form_fieldsets = list(form_fieldsets)
 form_fieldsets.insert(1, (_("Email"), {"fields": ("send_email", "email_from",
     "email_copies", "email_subject", "email_message")}))
 
+inline_field_excludes = []
+if not settings.FORMS_USE_HTML5:
+    inline_field_excludes += ["placeholder_text"]
+
 
 class FieldAdmin(TabularDynamicInlineAdmin):
     """
@@ -39,6 +46,7 @@ class FieldAdmin(TabularDynamicInlineAdmin):
     add dynamic "Add another" link and drag/drop ordering.
     """
     model = Field
+    exclude = inline_field_excludes
 
 
 class FormAdmin(PageAdmin):
@@ -48,7 +56,7 @@ class FormAdmin(PageAdmin):
     """
 
     class Media:
-        css = {"all": ("mezzanine/css/admin/form.css",)}
+        css = {"all": (static("mezzanine/css/admin/form.css"),)}
 
     inlines = (FieldAdmin,)
     list_display = ("title", "status", "email_copies",)
@@ -57,7 +65,6 @@ class FormAdmin(PageAdmin):
     list_filter = ("status",)
     search_fields = ("title", "content", "response", "email_from",
                      "email_copies")
-    radio_fields = {"status": admin.HORIZONTAL}
     fieldsets = form_fieldsets
 
     def get_urls(self):
@@ -90,19 +97,26 @@ class FormAdmin(PageAdmin):
         submitted = entries_form.is_valid()
         if submitted:
             if request.POST.get("export"):
-                response = HttpResponse(mimetype="text/csv")
+                response = HttpResponse(content_type="text/csv")
                 timestamp = slugify(datetime.now().ctime())
                 fname = "%s-%s.csv" % (form.slug, timestamp)
                 header = "attachment; filename=%s" % fname
                 response["Content-Disposition"] = header
                 queue = StringIO()
-                csv = writer(queue, delimiter=settings.FORMS_CSV_DELIMITER)
-                csv.writerow(entries_form.columns())
+                delimiter = settings.FORMS_CSV_DELIMITER
+                try:
+                    csv = writer(queue, delimiter=delimiter)
+                    writerow = csv.writerow
+                except TypeError:
+                    queue = BytesIO()
+                    delimiter = bytes(delimiter, encoding="utf-8")
+                    csv = writer(queue, delimiter=delimiter)
+                    writerow = lambda row: csv.writerow([c.encode("utf-8")
+                        if hasattr(c, "encode") else c for c in row])
+                writerow(entries_form.columns())
                 for row in entries_form.rows(csv=True):
-                    csv.writerow(row)
-                # Decode and reencode the response into utf-16 to be
-                # Excel compatible.
-                data = queue.getvalue().decode("utf-8").encode("utf-16")
+                    writerow(row)
+                data = queue.getvalue()
                 response.write(data)
                 return response
             elif request.POST.get("delete") and can_delete_entries:
@@ -128,7 +142,7 @@ class FormAdmin(PageAdmin):
         """
         field_entry = get_object_or_404(FieldEntry, id=field_entry_id)
         path = join(fs.location, field_entry.value)
-        response = HttpResponse(mimetype=guess_type(path)[0])
+        response = HttpResponse(content_type=guess_type(path)[0])
         f = open(path, "r+b")
         response["Content-Disposition"] = "attachment; filename=%s" % f.name
         response.write(f.read())

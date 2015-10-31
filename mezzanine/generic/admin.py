@@ -1,10 +1,14 @@
+from __future__ import unicode_literals
 
+from django.conf import settings
 from django.contrib import admin
-from django.contrib.comments.admin import CommentsAdmin
+from django_comments.admin import CommentsAdmin
 from django.utils.translation import ugettext_lazy as _
 
-from mezzanine.conf import settings
 from mezzanine.generic.models import ThreadedComment
+
+
+__all__ = ('ThreadedCommentAdmin',)
 
 
 class ThreadedCommentAdmin(CommentsAdmin):
@@ -27,7 +31,14 @@ class ThreadedCommentAdmin(CommentsAdmin):
         actions.pop("flag_comments")
         return actions
 
+    # Disable the 'Add' action for this model, fixed a crash if you try
+    # to create a comment from admin panel
+    def has_add_permission(self, request):
+        return False
+
 
 generic_comments = getattr(settings, "COMMENTS_APP", "") == "mezzanine.generic"
-if generic_comments and not settings.COMMENTS_DISQUS_SHORTNAME:
+using_disqus = bool(getattr(settings, "COMMENTS_DISQUS_SHORTNAME", False))
+
+if generic_comments and not using_disqus:
     admin.site.register(ThreadedComment, ThreadedCommentAdmin)

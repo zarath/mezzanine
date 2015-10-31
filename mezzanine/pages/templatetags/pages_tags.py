@@ -1,3 +1,5 @@
+from __future__ import unicode_literals
+from future.builtins import str
 
 from collections import defaultdict
 
@@ -7,7 +9,7 @@ from django.template.loader import get_template
 from django.utils.translation import ugettext_lazy as _
 
 from mezzanine.pages.models import Page
-from mezzanine.utils.urls import admin_url, home_slug
+from mezzanine.utils.urls import home_slug
 from mezzanine import template
 
 
@@ -28,7 +30,7 @@ def page_menu(context, token):
     parts = token.split_contents()[1:]
     for part in parts:
         part = Variable(part).resolve(context)
-        if isinstance(part, unicode):
+        if isinstance(part, str):
             template_name = part
         elif isinstance(part, Page):
             parent_page = part
@@ -48,33 +50,32 @@ def page_menu(context, token):
             slug = ""
         num_children = lambda id: lambda: len(context["menu_pages"][id])
         has_children = lambda id: lambda: num_children(id)() > 0
-        published = Page.objects.published(for_user=user)
-        if slug == admin_url(Page, "changelist"):
-            related = [m.__name__.lower() for m in Page.get_content_models()]
-            published = published.select_related(*related)
-        else:
-            published = published.select_related(depth=2)
+        rel = [m.__name__.lower()
+               for m in Page.get_content_models()
+               if not m._meta.proxy]
+        published = Page.objects.published(for_user=user).select_related(*rel)
         # Store the current page being viewed in the context. Used
         # for comparisons in page.set_menu_helpers.
         if "page" not in context:
             try:
-                context["_current_page"] = published.get(slug=slug)
+                context.dicts[0]["_current_page"] = published.exclude(
+                    content_model="link").get(slug=slug)
             except Page.DoesNotExist:
-                context["_current_page"] = None
+                context.dicts[0]["_current_page"] = None
         elif slug:
-            context["_current_page"] = context["page"]
+            context.dicts[0]["_current_page"] = context["page"]
         # Some homepage related context flags. on_home is just a helper
         # indicated we're on the homepage. has_home indicates an actual
         # page object exists for the homepage, which can be used to
         # determine whether or not to show a hard-coded homepage link
         # in the page menu.
         home = home_slug()
-        context["on_home"] = slug == home
-        context["has_home"] = False
+        context.dicts[0]["on_home"] = slug == home
+        context.dicts[0]["has_home"] = False
         # Maintain a dict of page IDs -> parent IDs for fast
         # lookup in setting page.is_current_or_ascendant in
         # page.set_menu_helpers.
-        context["_parent_page_ids"] = {}
+        context.dicts[0]["_parent_page_ids"] = {}
         pages = defaultdict(list)
         for page in published.order_by("_order"):
             page.set_helpers(context)
@@ -83,8 +84,10 @@ def page_menu(context, token):
             setattr(page, "has_children", has_children(page.id))
             pages[page.parent_id].append(page)
             if page.slug == home:
-                context["has_home"] = True
-        context["menu_pages"] = pages
+                context.dicts[0]["has_home"] = True
+        # Include menu_pages in all contexts, not only in the
+        # block being rendered.
+        context.dicts[0]["menu_pages"] = pages
     # ``branch_level`` must be stored against each page so that the
     # calculation of it is correctly applied. This looks weird but if we do
     # the ``branch_level`` as a separate arg to the template tag with the
@@ -113,6 +116,7 @@ def page_menu(context, token):
         page.has_children_in_menu = page.num_children_in_menu > 0
         page.branch_level = context["branch_level"]
         page.parent = parent_page
+        context["parent_page"] = page.parent
 
         # Prior to pages having the ``in_menus`` field, pages had two
         # boolean fields ``in_navigation`` and ``in_footer`` for
@@ -179,7 +183,7 @@ def set_page_permissions(context, token):
         opts = model._meta
     except AttributeError:
         if model is None:
-            error = _("Could not load the model for the following page,"
+            error = _("Could not load the model for the following page, "
                       "was it removed?")
             obj = page
         else:

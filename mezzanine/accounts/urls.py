@@ -1,10 +1,11 @@
+from __future__ import unicode_literals
 
 from django.conf.urls import patterns, url
 
 from mezzanine.conf import settings
 
 
-ACCOUNT_URL = getattr(settings, "ACCOUNT_URL", "/account/")
+ACCOUNT_URL = getattr(settings, "ACCOUNT_URL", "/accounts/")
 SIGNUP_URL = getattr(settings, "SIGNUP_URL",
                      "/%s/signup/" % ACCOUNT_URL.strip("/"))
 SIGNUP_VERIFY_URL = getattr(settings, "SIGNUP_VERIFY_URL",

@@ -30,6 +30,10 @@ The deployed stack consists of the following components:
   * `PostgreSQL <http://postgresql.org>`_ - database server
   * `memcached <http://memcached.org>`_ - in-memory caching server
   * `supervisord <http://supervisord.org>`_ - process control and monitor
+  * `virtualenv <https://pypi.python.org/pypi/virtualenv>`_ - isolated Python
+    environments for each project
+  * `git <http://git-scm.com/>`_ or `mercurial <http://mercurial.selenic.com/>`_
+    - version control systems (optional)
 
 .. note::
 
@@ -47,23 +51,23 @@ The deployed stack consists of the following components:
 Configuration
 -------------
 
-Configurable variables are implemented in the project's ``settings.py``
-module. Here's an example::
+Configurable variables are implemented in the project's ``local_settings.py``
+module. Here's an example, that leverages some existing setting names::
+
+  # Domains for public site
+  ALLOWED_HOSTS = ["example.com"]
 
   FABRIC = {
-      "SSH_USER": "", # SSH username
-      "SSH_PASS":  "", # SSH password (consider key-based authentication)
-      "SSH_KEY_PATH":  "", # Local path to SSH key file, for key-based auth
-      "HOSTS": [], # List of hosts to deploy to
-      "VIRTUALENV_HOME":  "", # Absolute remote path for virtualenvs
-      "PROJECT_NAME": "", # Unique identifier for project
-      "REQUIREMENTS_PATH": "requirements/project.txt", # Path to pip requirements, relative to project
-      "GUNICORN_PORT": 8000, # Port gunicorn will listen on
-      "LOCALE": "en_US.utf8", # Should end with ".utf8"
-      "LIVE_HOSTNAME": "www.example.com", # Host for public site.
-      "REPO_URL": "", # Git or Mercurial remote repo URL for the project
-      "DB_PASS": "", # Live database password
-      "ADMIN_PASS": "", # Live admin user password
+      "DEPLOY_TOOL": "rsync",  # Deploy with "git", "hg", or "rsync"
+      "SSH_USER": "server_user",  # VPS SSH username
+      "HOSTS": ["123.123.123.123"],  # The IP address of your VPS
+      "DOMAINS": ALLOWED_HOSTS,  # Edit domains in ALLOWED_HOSTS
+      "REQUIREMENTS_PATH": "requirements.txt",  # Project's pip requirements
+      "LOCALE": "en_US.UTF-8",  # Should end with ".UTF-8"
+      "DB_PASS": "",  # Live database password
+      "ADMIN_PASS": "",  # Live admin user password
+      "SECRET_KEY": SECRET_KEY,
+      "NEVERCACHE_KEY": NEVERCACHE_KEY,
   }
 
 Commands
@@ -75,63 +79,51 @@ for more information on working with these:
 
 .. include:: fabfile.rst
 
-Multiple Sites and Multi-Tenancy
-=================================
+Tutorial
+========
 
-Mezzanine makes use of Django's ``sites`` app to support multiple
-sites in a single project. This functionality is always "turned on" in
-Mezzanine: a single ``Site`` record always exists, and is referenced
-when retrieving site related data, which most content in Mezzanine falls
-under.
+CASE 1: Deploying to a brand new server
+----------------------------------------
 
-Where Mezzanine diverges from Django is how the ``Site`` record is
-retrieved. Typically a running instance of a Django project is bound
-to a single site defined by the ``SITE_ID`` setting, so while a project
-may contain support for multiple sites, a separate running instance of
-the project is required per site.
+1. Get your sever. Anything that grants you root access works. VPS's like those
+   from Digital Ocean work great and are cheap.
+2. Fill the ``ALLOWED_HOSTS`` and ``FABRIC`` settings in ``local_settings.py``
+   as shown in the `Configuration`_ section above. For ``SSH_USER`` provide any
+   username you want (not root), and the fabfile will create it for you.
+3. Run ``fab secure``. You simply need to know the root password to your VPS.
+   The new user will be created and you can SSH with that from now on (if
+   needed). For security reason, root login via SSH is disabled by this task.
+4. Run ``fab all``. It will take a while to install the required environment,
+   but after that, your Mezzanine site will be live.
 
-Mezzanine uses a pipeline of checks to determine which site to
-reference when accessing content. The most import of these is one where
-the host name of the current request is compared to the domain name
-specified for each ``Site`` record. With this in place, true
-multi-tenancy is achieved, and multiple sites can be hosted within a
-single running instance of the project.
+Notice that not even once you had to manually SSH into your VPS. *Note: some
+server providers (like Digital Ocean) require you to login as root once to
+change the default password. It should be the only time you are required to SSH
+into the sever.*
 
-Here's the list of checks in the pipeline, in order:
+CASE 2: Deploying to an existing server
+---------------------------------------
 
-  * The session variable ``site_id``. This allows a project to include
-    features where a user's session is explicitly associated with a site.
-    Mezzanine uses this in its admin to allow admin users to switch
-    between sites to manage, while accessing the admin on a single domain.
-  * The domain matching the host of the current request, as described
-    above.
-  * The environment variable ``MEZZANINE_SITE_ID``. This allows
-    developers to specify the site for contexts outside of a HTTP
-    request, such as management commands. Mezzanine includes a custom
-    ``manage.py`` which will check for (and remove) a ``--site=ID``
-    argument.
-  * Finally, Mezzanine will fall back to the ``SITE_ID`` setting if none
-    of the above checks can occur.
+If you already have a server, and you already have created a non-root user with
+sudo privileges:
 
-Twitter Feeds
-=============
+1. Fill the ``ALLOWED_HOSTS`` and ``FABRIC`` settings in ``local_settings.py``
+   as shown in the `Configuration`_ section above. For ``SSH_USER`` provide the
+   user with sudo privileges.
+2. Run ``fab install`` to install system-wide requirements.
+3. Run ``fab deploy`` to deploy your project.
+   
+Deploying more than one site to the server
+------------------------------------------
 
-If Twitter feeds are implemented in your templates, a cron job is
-required that will run the following management command. For example,
-if we want the tweets to be updated every 10 minutes::
+After you have completed your first deployment, for all subsequent deployments
+in the same server (either new sites or updates to your existing sites) you only
+need to run ``fab deploy``.
 
-    */10 * * * * python path/to/your/site/manage.py poll_twitter
+Fixing bugs pushed by accident to the server
+--------------------------------------------
 
-This ensures that the data is always available in the site's database
-when accessed, and allows you to control how often the Twitter API is
-queried. Note that the Fabric script described earlier includes
-features for deploying templates for cron jobs, which includes the
-job for polling Twitter by default.
-
-As of June 2013, Twitter also requires that all API access is
-authenticated. For this you'll need to configure OAuth credentials for
-your site to access the Twitter API. These settings are configurable
-as Mezzanine settings. See the :doc:`configuration` section for more
-information on these, as well as the `Twitter developer site
-<https://dev.twitter.com/>`_ for info on configuring your OAuth
-credentials.
+1. Run ``fab rollback``. This will roll back your project files, database, and
+   static files to how they were in the last (working) deployment.
+2. Work on the fixes in your development machine.
+3. Run ``fab deploy`` to push your fixes to production.

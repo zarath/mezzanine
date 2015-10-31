@@ -8,9 +8,9 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Mezzanine\n"
-"Report-Msgid-Bugs-To: https://github.com/stephenmcd/mezzanine/issues\n"
-"POT-Creation-Date: 2013-04-07 09:34-0430\n"
-"PO-Revision-Date: 2013-06-07 09:16+0000\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2013-11-09 10:33-0430\n"
+"PO-Revision-Date: 2013-11-30 00:30+0000\n"
 "Last-Translator: mozgur <mozgurbayhan@gmail.com>\n"
 "Language-Team: Turkish (Turkey) (http://www.transifex.com/projects/p/mezzanine/language/tr_TR/)\n"
 "MIME-Version: 1.0\n"
@@ -64,39 +64,39 @@ msgid ""
 "``login_required`` checked, they'll be redirected to the login page."
 msgstr "Eğer işaretli ise, sisteme giriş yapmayı gerektiren sayfalar hala menülerde ve arama sonuçlarında sisteme giriş yapmamış kullanıcılara da listelenmeye devam eder. Ama bu ayara bakmaksızın giriş yapmamış bir kullanıcı bu sayfalara erişmeye çalıştığında kullanıcı girişi sayfasına yönlendirilir."
 
-#: models.py:33
+#: models.py:38
 msgid "Show in menus"
 msgstr "Menülerde göster"
 
-#: models.py:36
+#: models.py:41
 msgid "Login required"
 msgstr "Giriş gerekli"
 
-#: models.py:37
+#: models.py:42
 msgid "If checked, only logged in users can view this page"
 msgstr "Eğer işaretliyse bu sayfayı sadece giriş yapmış kullanıcılar görebilir"
 
-#: models.py:40
+#: models.py:45
 msgid "Page"
 msgstr "Sayfa"
 
-#: models.py:41
+#: models.py:46
 msgid "Pages"
 msgstr "Sayfalar"
 
-#: models.py:266
+#: models.py:271
 msgid "Rich text page"
 msgstr "Zengin metin sayfası"
 
-#: models.py:267
+#: models.py:272
 msgid "Rich text pages"
 msgstr "Zengin metin sayfaları"
 
-#: models.py:277
+#: models.py:282
 msgid "Link"
 msgstr "Bağlantı"
 
-#: models.py:278
+#: models.py:283
 msgid "Links"
 msgstr "Bağlantılar"
 
@@ -114,7 +114,11 @@ msgstr "Ekle"
 msgid "Home"
 msgstr "Anasayfa"
 
-#: templatetags/pages_tags.py:183
+#: templatetags/pages_tags.py:182
+msgid "Could not load the model for the following page,was it removed?"
+msgstr "Takip eden sayfa için bir model yükleyemedi, kaldırılmış olabilirmi?"
+
+#: templatetags/pages_tags.py:188
 msgid ""
 "An error occured with the following class. Does it subclass Page directly?"
 msgstr "Bu sınıfla ilgili bir hata oluştu. Direk olarak Page sınıfından mı türetilmiş?"

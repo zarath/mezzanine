@@ -4,40 +4,33 @@ all the various Mezzanine apps, third-party apps like Grappelli and
 filebrowser.
 """
 
-from django.conf.urls import patterns, include
-from django.contrib import admin
-from django.contrib.admin.sites import NotRegistered
+from __future__ import unicode_literals
+from future.builtins import str
+
+from django.conf.urls import patterns, include, url
 from django.http import HttpResponse
 
 from mezzanine.conf import settings
 from mezzanine.core.sitemaps import DisplayableSitemap
 
 
-# Remove unwanted models from the admin that are installed by default with
-# third-party apps.
-for model in settings.ADMIN_REMOVAL:
-    try:
-        model = tuple(model.rsplit(".", 1))
-        exec "from %s import %s" % model
-    except ImportError:
-        pass
-    else:
-        try:
-            admin.site.unregister(eval(model[1]))
-        except NotRegistered:
-            pass
-
-
 urlpatterns = []
 
 # JavaScript localization feature
-js_info_dict = {
-    'domain': 'django',
-}
-
+js_info_dict = {'domain': 'django'}
 urlpatterns += patterns('django.views.i18n',
     (r'^jsi18n/(?P<packages>\S+?)/$', 'javascript_catalog', js_info_dict),
 )
+
+if settings.DEBUG:
+    try:
+        import debug_toolbar
+    except ImportError:
+        pass
+    else:
+        urlpatterns += patterns('',
+            url(r'^__debug__/', include(debug_toolbar.urls)),
+        )
 
 # Django's sitemap app.
 if "django.contrib.sitemaps" in settings.INSTALLED_APPS:
@@ -50,14 +43,7 @@ if "django.contrib.sitemaps" in settings.INSTALLED_APPS:
 if getattr(settings, "DEBUG", False):
     urlpatterns += patterns("",
         ("^robots.txt$", lambda r: HttpResponse("User-agent: *\nDisallow: /",
-                                                mimetype="text/plain")),
-    )
-
-# Filebrowser admin media library.
-if getattr(settings, "PACKAGE_NAME_FILEBROWSER") in settings.INSTALLED_APPS:
-    urlpatterns += patterns("",
-        ("^admin/media-library/", include("%s.urls" %
-                                        settings.PACKAGE_NAME_FILEBROWSER)),
+                                                content_type="text/plain")),
     )
 
 # Miscellanous Mezzanine patterns.
@@ -99,7 +85,7 @@ if "mezzanine.pages" in settings.INSTALLED_APPS:
         PAGES_SLUG = getattr(settings, "PAGES_SLUG", "pages").strip("/") + "/"
         blog_patterns_start = urlpatterns.index(blog_patterns[0])
         urlpatterns[blog_patterns_start:len(blog_patterns)] = patterns("",
-            ("^%s" % unicode(PAGES_SLUG), include("mezzanine.pages.urls")),
+            ("^%s" % str(PAGES_SLUG), include("mezzanine.pages.urls")),
         )
     else:
         urlpatterns += patterns("",

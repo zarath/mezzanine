@@ -10,6 +10,9 @@ that are only read during startup shouldn't be editable, since changing
 them would require an application reload.
 """
 
+from __future__ import unicode_literals
+from future.builtins import range
+
 from django.conf import settings
 from django.utils.translation import ugettext_lazy as _
 
@@ -115,6 +118,14 @@ if generic_comments:
         default=True,
     )
 
+    register_setting(
+        name="COMMENT_FORM_CLASS",
+        description=_("The form class to use for adding new comments."),
+        editable=False,
+        default="mezzanine.generic.forms.ThreadedCommentForm",
+    )
+
+
 register_setting(
     name="RATINGS_ACCOUNT_REQUIRED",
     label=_("Accounts required for rating"),
@@ -128,6 +139,6 @@ register_setting(
     name="RATINGS_RANGE",
     description=_("A sequence of integers that are valid ratings."),
     editable=False,
-    default=range(getattr(settings, "RATINGS_MIN", 1),
-                  getattr(settings, "RATINGS_MAX", 5) + 1),
+    default=list(range(getattr(settings, "RATINGS_MIN", 1),
+                  getattr(settings, "RATINGS_MAX", 5) + 1)),
 )

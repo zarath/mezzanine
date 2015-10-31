@@ -8,9 +8,9 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Mezzanine\n"
-"Report-Msgid-Bugs-To: https://github.com/stephenmcd/mezzanine/issues\n"
-"POT-Creation-Date: 2013-04-07 09:34-0430\n"
-"PO-Revision-Date: 2013-06-07 09:16+0000\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2013-10-05 07:21-0430\n"
+"PO-Revision-Date: 2013-12-02 20:30+0000\n"
 "Last-Translator: mozgur <mozgurbayhan@gmail.com>\n"
 "Language-Team: Turkish (Turkey) (http://www.transifex.com/projects/p/mezzanine/language/tr_TR/)\n"
 "MIME-Version: 1.0\n"
@@ -166,7 +166,7 @@ msgstr "Buton metni"
 
 #: models.py:18
 msgid "Submit"
-msgstr "Onay"
+msgstr "Onayla"
 
 #: models.py:19
 msgid "Response"

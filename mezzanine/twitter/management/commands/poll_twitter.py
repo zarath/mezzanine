@@ -1,7 +1,9 @@
+from __future__ import print_function, unicode_literals
 
 from optparse import make_option
 
 from django.core.management.base import NoArgsCommand
+from django import db
 
 from mezzanine.twitter.models import Query, TwitterQueryException
 
@@ -22,5 +24,9 @@ class Command(NoArgsCommand):
         for query in queries:
             try:
                 query.run()
-            except TwitterQueryException, e:
-                print "Twitter query error [%s]: %s" % (query, e)
+            except TwitterQueryException as e:
+                print("Twitter query error [%s]: %s" % (query, e))
+        try:
+            db.close_connection()
+        except:
+            pass

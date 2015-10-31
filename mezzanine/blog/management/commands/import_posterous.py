@@ -1,3 +1,4 @@
+from __future__ import unicode_literals
 
 from datetime import datetime
 import json
@@ -22,8 +23,7 @@ class Command(BaseImporterCommand):
         make_option("-p", "--posterous-pass", dest="password",
             help="Posterous Password"),
         make_option("-d", "--posterous-host", dest="hostname",
-            help="Posterous Blog Hostname (no http.. eg. 'foo.com')"
-        ),
+            help="Posterous Blog Hostname (no http.. eg. 'foo.com')"),
     )
     help = "Import Posterous blog posts into the blog app."
 

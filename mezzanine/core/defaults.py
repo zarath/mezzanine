@@ -9,6 +9,7 @@ making it editable, as it may be inappropriate - for example settings
 that are only read during startup shouldn't be editable, since changing
 them would require an application reload.
 """
+from __future__ import unicode_literals
 
 from django.conf import settings
 from django.utils.translation import ugettext_lazy as _
@@ -26,6 +27,15 @@ register_setting(
         (_("Site"), ("sites.Site", "redirects.Redirect", "conf.Setting")),
         (_("Users"), ("auth.User", "auth.Group",)),
     ),
+)
+
+register_setting(
+    name="ADMIN_MENU_COLLAPSED",
+    label=_("Collapse the Admin menu"),
+    description=_("Controls whether or not the left-hand admin menu is "
+                  "collapsed by default."),
+    editable=True,
+    default=False,
 )
 
 register_setting(
@@ -66,7 +76,7 @@ register_setting(
         "caching. This is where the requested expiry for a cache entry "
         "is stored with the cache entry in cache, and the real expiry "
         "used has the ``CACHE_SET_DELAY`` added to it. Then on a cache get, "
-        "the store expiry is checked, and if it has past, the cache entry "
+        "the store expiry is checked, and if it has passed, the cache entry "
         "is set again, and no entry is returned. This tries to ensure that "
         "cache misses never occur, and if many clients were to get a cache "
         "miss at once, only one would actually need to re-generated the "
@@ -121,8 +131,7 @@ register_setting(
             "TS21i-10", "UP.Browser", "UP.Link", "webOS", "Windows CE",
             "WinWAP", "YahooSeeker/M1A1-R2D2", "iPhone", "iPod", "Android",
             "BlackBerry9530", "LG-TU915 Obigo", "LGE VX", "webOS",
-            "Nokia5800",)
-        ),
+            "Nokia5800",)),
     ),
 )
 
@@ -131,6 +140,15 @@ register_setting(
     description=_("If ``True``, website forms will use HTML5 features."),
     editable=False,
     default=False,
+)
+
+register_setting(
+    name="EMAIL_FAIL_SILENTLY",
+    description=_("If ``True``, failures to send email will happen "
+                  "silently, otherwise an exception is raised. "
+                  "Defaults to ``settings.DEBUG``."),
+    editable=False,
+    default=settings.DEBUG,
 )
 
 register_setting(
@@ -159,7 +177,7 @@ register_setting(
 register_setting(
     name="HOST_THEMES",
     description=_("A sequence mapping host names to themes, allowing "
-                  "different templates to be served per HTTP hosts "
+                  "different templates to be served per HTTP host. "
                   "Each item in the sequence is a two item sequence, "
                   "containing a host such as ``othersite.example.com``, and "
                   "the name of an importable Python package for the theme. "
@@ -183,7 +201,7 @@ register_setting(
     description=_("Name of the jQuery file found in "
                   "mezzanine/core/static/mezzanine/js/"),
     editable=False,
-    default="jquery-1.7.1.min.js",
+    default="jquery-1.8.3.min.js",
 )
 
 register_setting(
@@ -192,7 +210,7 @@ register_setting(
     description=_("Name of the jQuery UI file found in "
                   "mezzanine/core/static/mezzanine/js/"),
     editable=False,
-    default="jquery-ui-1.9.1.custom.min.js",
+    default="jquery-ui-1.8.24.min.js",
 )
 
 register_setting(
@@ -237,15 +255,16 @@ register_setting(
     description=_("List of HTML tags that won't be stripped from "
         "``RichTextField`` instances."),
     editable=False,
-    default=("a", "abbr", "acronym", "address", "area", "b", "bdo", "big",
-        "blockquote", "br", "button", "caption", "center", "cite", "code",
-        "col", "colgroup", "dd", "del", "dfn", "dir", "div", "dl", "dt",
-        "em", "fieldset", "font", "form", "h1", "h2", "h3", "h4", "h5",
-        "h6", "hr", "i", "img", "input", "ins", "kbd", "label", "legend",
-        "li", "map", "menu", "ol", "optgroup", "option", "p", "pre", "q",
-        "s", "samp", "select", "small", "span", "strike", "strong", "sub",
-        "sup", "table", "tbody", "td", "textarea", "tfoot", "th", "thead",
-        "tr", "tt", "u", "ul", "var", "wbr"),
+    default=("a", "abbr", "acronym", "address", "area", "article", "aside",
+        "b", "bdo", "big", "blockquote", "br", "button", "caption", "center",
+        "cite", "code", "col", "colgroup", "dd", "del", "dfn", "dir", "div",
+        "dl", "dt", "em", "fieldset", "figure", "font", "footer", "form",
+        "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "i", "img",
+        "input", "ins", "kbd", "label", "legend", "li", "map", "menu",
+        "nav", "ol", "optgroup", "option", "p", "pre", "q", "s", "samp",
+        "section", "select", "small", "span", "strike", "strong",
+        "sub", "sup", "table", "tbody", "td", "textarea",
+        "tfoot", "th", "thead", "tr", "tt", "u", "ul", "var", "wbr"),
 )
 
 register_setting(
@@ -271,8 +290,9 @@ register_setting(
     description=_("List of inline CSS styles that won't be stripped from "
         "``RichTextField`` instances."),
     editable=False,
-    default=("margin-top", "margin-bottom", "margin-left", "margin-right",
-        "float", "vertical-align", "border", "margin"),
+    default=("border", "display", "float", "list-style-type", "margin",
+        "margin-bottom", "margin-left", "margin-right", "margin-top",
+        "padding-left", "text-align", "text-decoration", "vertical-align"),
 )
 
 register_setting(
@@ -280,7 +300,7 @@ register_setting(
     description=_("List of dotted paths to functions, called in order, on a "
         "``RichTextField`` value before it is rendered to the template."),
     editable=False,
-    default=(),
+    default=("mezzanine.utils.html.thumbnails",),
 )
 
 RICHTEXT_FILTER_LEVEL_HIGH = 1
@@ -352,6 +372,7 @@ register_setting(
         "appended to the content of the HTML title tags on every page."),
     editable=True,
     default="Mezzanine",
+    translatable=True,
 )
 
 register_setting(
@@ -360,6 +381,7 @@ register_setting(
     description=_("A tag line that will appear at the top of all pages."),
     editable=True,
     default=_("An open source content management platform."),
+    translatable=True,
 )
 
 register_setting(
@@ -367,7 +389,7 @@ register_setting(
     description=_("Dotted Python path to the callable for converting "
         "strings into URL slugs. Defaults to "
         "``mezzanine.utils.urls.slugify_unicode`` which allows for non-ascii "
-        "URLS. Change to ``django.template.defaultfilters.slugify`` to use "
+        "URLs. Change to ``django.template.defaultfilters.slugify`` to use "
         "Django's slugify function, or something of your own if required."),
     editable=False,
     default="mezzanine.utils.urls.slugify_unicode",
@@ -444,7 +466,7 @@ register_setting(
         "done", "down", "due", "during", "each", "eg", "eight",
         "either", "eleven", "else", "elsewhere", "empty", "enough",
         "etc", "even", "ever", "every", "everyone", "everything",
-        "everywhere", "except", "few", "fifteen", "fify", "fill",
+        "everywhere", "except", "few", "fifteen", "fifty", "fill",
         "find", "fire", "first", "five", "for", "former", "formerly",
         "forty", "found", "four", "from", "front", "full", "further",
         "get", "give", "go", "had", "has", "hasnt", "have", "he",
@@ -495,13 +517,15 @@ register_setting(
     description=_("Sequence of setting names available within templates."),
     editable=False,
     default=(
-        "ACCOUNTS_VERIFICATION_REQUIRED", "BITLY_ACCESS_TOKEN",
-        "BLOG_USE_FEATURED_IMAGE", "COMMENTS_DISQUS_SHORTNAME",
-        "COMMENTS_NUM_LATEST", "COMMENTS_DISQUS_API_PUBLIC_KEY",
-        "COMMENTS_DISQUS_API_SECRET_KEY", "COMMENTS_USE_RATINGS",
-        "DEV_SERVER", "FORMS_USE_HTML5", "GRAPPELLI_INSTALLED",
-        "GOOGLE_ANALYTICS_ID", "JQUERY_FILENAME", "LOGIN_URL", "LOGOUT_URL",
-        "SITE_TITLE", "SITE_TAGLINE",
+        "ACCOUNTS_APPROVAL_REQUIRED", "ACCOUNTS_VERIFICATION_REQUIRED",
+        "ADMIN_MENU_COLLAPSED",
+        "BITLY_ACCESS_TOKEN", "BLOG_USE_FEATURED_IMAGE",
+        "COMMENTS_DISQUS_SHORTNAME", "COMMENTS_NUM_LATEST",
+        "COMMENTS_DISQUS_API_PUBLIC_KEY", "COMMENTS_DISQUS_API_SECRET_KEY",
+        "COMMENTS_USE_RATINGS", "DEV_SERVER", "FORMS_USE_HTML5",
+        "GRAPPELLI_INSTALLED", "GOOGLE_ANALYTICS_ID", "JQUERY_FILENAME",
+        "JQUERY_UI_FILENAME", "LOGIN_URL", "LOGOUT_URL", "SITE_TITLE",
+        "SITE_TAGLINE", "USE_L10N", "USE_MODELTRANSLATION",
     ),
 )
 
@@ -539,9 +563,18 @@ register_setting(
 # modules, so the default values defined here will never be used.
 
 register_setting(
-    name="USE_SOUTH",
-    description=_("If ``True``, the south application will be "
-        "automatically added to the ``INSTALLED_APPS`` setting."),
+    name="USE_MODELTRANSLATION",
+    description=_("If ``True``, the django-modeltranslation application will "
+        "be automatically added to the ``INSTALLED_APPS`` setting."),
     editable=False,
-    default=True,
+    default=False,
+)
+
+register_setting(
+    name="NEVERCACHE_KEY",
+    description=_("Unique random string like ``SECRET_KEY``, but used for "
+        "two-phased cache responses. Like ``SECRET_KEY``, should be "
+        "automatically generated by the ``mezzanine-project`` command."),
+    editable=False,
+    default="",
 )

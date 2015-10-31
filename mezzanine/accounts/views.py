@@ -1,35 +1,37 @@
+from __future__ import unicode_literals
 
-from django.contrib.auth import (authenticate, login as auth_login,
-                                               logout as auth_logout)
+from django.contrib.auth import (login as auth_login, authenticate,
+                                 logout as auth_logout, get_user_model)
 from django.contrib.auth.decorators import login_required
 from django.contrib.messages import info, error
-from django.core.urlresolvers import NoReverseMatch
+from django.core.urlresolvers import NoReverseMatch, get_script_prefix
 from django.shortcuts import get_object_or_404, redirect
 from django.utils.translation import ugettext_lazy as _
 
-from mezzanine.utils.models import get_user_model
 from mezzanine.accounts import get_profile_form
 from mezzanine.accounts.forms import LoginForm, PasswordResetForm
 from mezzanine.conf import settings
 from mezzanine.utils.email import send_verification_mail, send_approve_mail
-from mezzanine.utils.urls import login_redirect
+from mezzanine.utils.urls import login_redirect, next_url
 from mezzanine.utils.views import render
 
 
 User = get_user_model()
 
 
-def login(request, template="accounts/account_login.html"):
+def login(request, template="accounts/account_login.html",
+          form_class=LoginForm, extra_context=None):
     """
     Login form.
     """
-    form = LoginForm(request.POST or None)
+    form = form_class(request.POST or None)
     if request.method == "POST" and form.is_valid():
         authenticated_user = form.save()
         info(request, _("Successfully logged in"))
         auth_login(request, authenticated_user)
         return login_redirect(request)
     context = {"form": form, "title": _("Log in")}
+    context.update(extra_context or {})
     return render(request, template, context)
 
 
@@ -39,10 +41,11 @@ def logout(request):
     """
     auth_logout(request)
     info(request, _("Successfully logged out"))
-    return redirect(request.GET.get("next") or "/")
+    return redirect(next_url(request) or get_script_prefix())
 
 
-def signup(request, template="accounts/account_signup.html"):
+def signup(request, template="accounts/account_signup.html",
+           extra_context=None):
     """
     Signup form.
     """
@@ -59,12 +62,13 @@ def signup(request, template="accounts/account_signup.html"):
                 send_verification_mail(request, new_user, "signup_verify")
                 info(request, _("A verification email has been sent with "
                                 "a link for activating your account."))
-            return redirect(request.GET.get("next") or "/")
+            return redirect(next_url(request) or "/")
         else:
             info(request, _("Successfully signed up"))
             auth_login(request, new_user)
             return login_redirect(request)
     context = {"form": form, "title": _("Sign up")}
+    context.update(extra_context or {})
     return render(request, template, context)
 
 
@@ -96,12 +100,14 @@ def profile_redirect(request):
     return redirect("profile", username=request.user.username)
 
 
-def profile(request, username, template="accounts/account_profile.html"):
+def profile(request, username, template="accounts/account_profile.html",
+            extra_context=None):
     """
     Display a profile.
     """
     lookup = {"username__iexact": username, "is_active": True}
     context = {"profile_user": get_object_or_404(User, **lookup)}
+    context.update(extra_context or {})
     return render(request, template, context)
 
 
@@ -115,7 +121,8 @@ def account_redirect(request):
 
 
 @login_required
-def profile_update(request, template="accounts/account_profile_update.html"):
+def profile_update(request, template="accounts/account_profile_update.html",
+                   extra_context=None):
     """
     Profile update form.
     """
@@ -130,17 +137,20 @@ def profile_update(request, template="accounts/account_profile_update.html"):
         except NoReverseMatch:
             return redirect("profile_update")
     context = {"form": form, "title": _("Update Profile")}
+    context.update(extra_context or {})
     return render(request, template, context)
 
 
-def password_reset(request, template="accounts/account_password_reset.html"):
-    form = PasswordResetForm(request.POST or None)
+def password_reset(request, template="accounts/account_password_reset.html",
+                   form_class=PasswordResetForm, extra_context=None):
+    form = form_class(request.POST or None)
     if request.method == "POST" and form.is_valid():
         user = form.save()
         send_verification_mail(request, user, "password_reset_verify")
         info(request, _("A verification email has been sent with "
                         "a link for resetting your password."))
     context = {"form": form, "title": _("Password Reset")}
+    context.update(extra_context or {})
     return render(request, template, context)
 
 

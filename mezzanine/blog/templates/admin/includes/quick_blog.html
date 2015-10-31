@@ -1,10 +1,10 @@
-{% load i18n future %}
+{% load i18n %}
 
 {% if perms.blog.add_blogpost and perms.blog.change_blogpost %}
 <script>
 // Format newlines for HTML in the quick blog form, since the content
 // is HTML but the form field is plain text.
-$(function() {
+jQuery(function($) {
     $('#quick-blog-form').submit(function() {
         var field = $('#quick-blog-form #id_content');
         var value = field.attr('value').split('\n\n').join('</p><p>');

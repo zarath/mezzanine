@@ -1,3 +1,5 @@
+from __future__ import unicode_literals
+from future.builtins import range
 
 from mezzanine.conf import settings
 from mezzanine.core.managers import DisplayableManager
@@ -21,8 +23,8 @@ class PageManager(DisplayableManager):
         """
         published = super(PageManager, self).published(for_user=for_user)
         unauthenticated = for_user and not for_user.is_authenticated()
-        if (unauthenticated and not include_login_required and not
-            settings.PAGES_PUBLISHED_INCLUDE_LOGIN_REQUIRED):
+        if (unauthenticated and not include_login_required and
+                not settings.PAGES_PUBLISHED_INCLUDE_LOGIN_REQUIRED):
             published = published.exclude(login_required=True)
         return published
 

@@ -1,4 +1,8 @@
+from __future__ import unicode_literals
+from future.builtins import str
+
 from django.db import models
+from django.core.urlresolvers import reverse
 from django.utils.translation import ugettext_lazy as _
 
 from mezzanine.conf import settings
@@ -33,7 +37,6 @@ class BlogPost(Displayable, Ownable, RichText, AdminThumbMixin):
         verbose_name_plural = _("Blog posts")
         ordering = ("-publish_date",)
 
-    @models.permalink
     def get_absolute_url(self):
         """
         URLs for blog posts can either be just their slug, or prefixed
@@ -43,7 +46,7 @@ class BlogPost(Displayable, Ownable, RichText, AdminThumbMixin):
         of the corresponding urlpattern, and if defined, we loop through
         each of these and build up the kwargs for the correct urlpattern.
         The order which we loop through them is important, since the
-        order goes from least granualr (just year) to most granular
+        order goes from least granular (just year) to most granular
         (year/month/day).
         """
         url_name = "blog_post_detail"
@@ -58,7 +61,7 @@ class BlogPost(Displayable, Ownable, RichText, AdminThumbMixin):
                 kwargs[date_part] = date_value
                 if date_part == settings.BLOG_URLS_DATE_FORMAT:
                     break
-        return (url_name, (), kwargs)
+        return reverse(url_name, kwargs=kwargs)
 
     # These methods are deprecated wrappers for keyword and category
     # access. They existed to support Django 1.3 with prefetch_related
